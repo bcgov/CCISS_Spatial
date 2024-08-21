@@ -3,15 +3,28 @@ library(terra)
 library(RSQLite)
 
 db <- dbConnect(RSQLite::SQLite(), "cciss_db.sqlite")
-dbListTables(db)
-dbGetQuery(db, "select * from bgc_preds limit 5")
 #dbWriteTable(db, "cciss_feas", dat2, row.names = FALSE)
+setwd("~/FFEC/CCISS_ShinyApp/")
 
-
-data_files <- list.files("./data/")
+data_files <- list.files("./bgc_data/")
 for(file in data_files){
   cat(file,"\n")
-  dat <- fread(paste0("./data/",file))
+  dat <- fread(paste0("./bgc_data/",file))
+  dat[,fp_code := as.integer(substr(period, 1, 4))]
+  dat2 <- dat[,.(cellid = as.integer(cellnum),
+                 fp_code, 
+                 bgc_pred,
+                 bgc_prop)]
+  
+  dbWriteTable(db, "bgc_preds", dat2, row.names = FALSE, append = TRUE)
+}
+dbExecute(db, "create index bgc_idx on bgc_preds(fp_code,cellid)")
+dbDisconnect(db)
+
+data_files <- list.files("./cciss_feas/")
+for(file in data_files){
+  cat(file,"\n")
+  dat <- fread(paste0("./cciss_feas/",file))
   dat[,fp_code := as.integer(substr(FuturePeriod, 1, 4))]
   dat2 <- dat[,.(cellid = as.integer(SiteRef),
                  fp_code, 
@@ -29,6 +42,6 @@ for(file in data_files){
   dbWriteTable(db, "cciss_feas", dat2, row.names = FALSE, append = TRUE)
 }
 dbExecute(db, "create index app_idx on cciss_feas(fp_code,edatope,species,cellid)")
-dbDisconnect(db)
 
-dat <- dbGetQuery(db, "select * from cciss_feas where fp_code = 2041 and edatope = 2 and species = 'Fd' and cellid = 20364")
+
+#dat <- dbGetQuery(db, "select * from cciss_feas where fp_code = 2041 and edatope = 2 and species = 'Fd' and cellid = 20364")
