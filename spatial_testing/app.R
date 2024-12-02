@@ -11,8 +11,9 @@ library(shinyWidgets)
 library(RSQLite)
 library(terra)
 library(plotly)
+library(ccissr)
 source("./JS_Source.R")
-db <- dbConnect(RSQLite::SQLite(), "cciss_db.sqlite")
+db <- dbConnect(RSQLite::SQLite(), "cciss_db.sqlite") #"/mnt/spatcciss/cciss_db.sqlite"
 
 onStop(function(){dbDisconnect(db)})
 t_rast <- rast("Raster_Templated.tif")
@@ -21,18 +22,18 @@ mbtk="pk.eyJ1Ijoid2htYWNrZW4iLCJhIjoiY2twaDVkNXU5MmJieTJybGE3cWRtY3Q4aCJ9.ISBkzS
 mblbsty = "whmacken/ckph5q6d21q1318nz4shnyp20"
 mbsty="whmacken/ckph5e7y01fhr17qk5nhnpo10"
 
-gcms <- c("ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR")
-periods <- c("2001_2020", "2021_2040", "2041_2060", "2061_2080", "2081_2100")
-base_tileserver <- "http://tileserver.thebeczone.ca/data/bgc_GCM_PERIOD/{z}/{x}/{y}.webp"
-species_tileserver <- "http://tileserver.thebeczone.ca/data/STAT_PERIOD_EDATOPE_SPECIES/{z}/{x}/{y}.webp"
-# Define UI for application that draws a histogram
+gcms <- c("SZ_Ensemble", "ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR")
+periods <- c("2001_2020", "2021_2040", "2041_2060", "2061_2080")
+base_tileserver <- "https://tileserver.thebeczone.ca/data/bgc_GCM_PERIOD/{z}/{x}/{y}.png"
+species_tileserver <- "https://tileserver.thebeczone.ca/data/STAT_PERIOD_EDATOPE_SPECIES/{z}/{x}/{y}.png"
+
 ui <- fluidPage(
   tabsetPanel(id = "tabs",
               
               tabPanel("Map Testing",
                        sidebarLayout(
                          sidebarPanel(
-                           radioButtons("type","Display BGC or Feasibility", choices = c("BGC","Feasibility"), selected = "Feasibility"),
+                           radioButtons("type","Display BGC or Feasibility", choices = c("BGC","Feasibility"), selected = "BGC"),
                            h1("BGC Options"),
                            selectInput("gcm_select","Select GCM", choices = gcms, selected = gcms[1]),
                            selectInput("period_select","Select Period", choices = periods, selected = periods[1]),
@@ -40,9 +41,9 @@ ui <- fluidPage(
                            selectInput("map_stat","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
                                                                                     "Feasibility Change" = "MeanChange",
                                                                                     "Add/Retreat" = "AddRet"), multiple = FALSE),
-                           selectInput("period_feas","Select Period", choices = periods[-1]),
+                           selectInput("period_feas","Select Period", choices = periods),
                            selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
-                           selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl"), multiple = FALSE)
+                           selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
                          ),
                          mainPanel(
                            leafletOutput("map", height = "90vh")
@@ -71,7 +72,12 @@ server <- function(input, output, session) {
       leaflet::addProviderTiles(leaflet::providers$Esri.WorldImagery, group = "Satellite",
                                 options = leaflet::pathOptions(pane = "mapPane")) %>%
       addPlugin() %>%
-      addBGCTiles()
+      addBGCTiles() %>%
+      addRasterTiles() %>%
+      addLayersControl(
+        baseGroups = c("Hillshade","Satellite","BGCs"),
+        overlayGroups = c("BGC_Preds"),
+        position = "topright")
   })
   
   observe({
@@ -86,17 +92,18 @@ server <- function(input, output, session) {
       #cat(tile_url)
     }
     
-    
-    leafletProxy("map", session) %>%
-      removeTiles(layerId = "Working") %>%
-      addTiles(urlTemplate = tile_url,
-               group = "BGC_Preds",
-               layerId = "Working",
-               options = tileOptions(maxZoom = 15,maxNativeZoom = 9)) %>%
-      addLayersControl(
-        baseGroups = c("Hillshade","Satellite","BGCs"),
-        overlayGroups = c("BGC_Preds"),
-        position = "topright")
+    session$sendCustomMessage("update_tiles",tile_url)
+
+    # leafletProxy("map", session) %>%
+    #   removeTiles(layerId = "Working") %>%
+    #   addTiles(urlTemplate = tile_url,
+    #            group = "BGC_Preds",
+    #            layerId = "Working",
+    #            options = tileOptions(maxZoom = 15,maxNativeZoom = 9)) %>%
+    #   addLayersControl(
+    #     baseGroups = c("Hillshade","Satellite","BGCs"),
+    #     overlayGroups = c("BGC_Preds"),
+    #     position = "topright")
   })
   
   observeEvent(input$map_click,{
@@ -105,21 +112,55 @@ server <- function(input, output, session) {
     
     cell_click <- cellFromXY(t_rast, cbind(lng,lat))
     fp <- substr(input$period_feas,1,4)
-    qry <- paste0("select * from bgc_preds where fp_code = ", fp, " and cellid = ",cell_click)
+    qry <- paste0("select * from bgc_preds where cellid = ",cell_click)
     #cat(qry)
     dat <- dbGetQuery(db, qry)
     
     output$bgc_plot <- renderPlotly({
-      fig <- plot_ly(dat, labels = ~bgc_pred, values = ~bgc_prop, type = "pie")
-      fig <- fig %>% layout(title = 'BGC Projections for Location',
-                            xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
-                            yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+      # fig <- plot_ly(dat, labels = ~bgc_pred, values = ~bgc_prop, type = "pie")
+      # fig <- fig %>% layout(title = 'BGC Projections for Location',
+      #                       xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+      #                       yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+      fig <- plot_ly(data = dat, x = ~fp_code,
+              y = ~bgc_prop, split = ~bgc_pred, type = 'bar',
+              color = ~bgc_pred, colors = colour_ref, hovertemplate = "%{y}",
+              text = ~bgc_pred, textposition = 'inside', textfont = list(color = "black", size = 12),
+              texttemplate = "%{text}") %>%
+        layout(yaxis = list(title = "", tickformat = ".1%"),
+               # xaxis = list(showspikes = FALSE, title = list(text = "Period"),
+               #              ticktext = c("2021-2040","2041-2060","2061-2080","2081-2100"),
+               #              tickvals = dat$fp_code),
+               barmode = 'stack')
+      fig
+    })
+  
+    eda <- switch(input$edatope_feas,
+      "B2" = 1,
+      "C4" = 2,
+      "E6" = 3
+    )
+    qry <- paste0("select * from cciss_feas where edatope = ",
+                  eda," and species = '", input$species_feas,
+                  "' and cellid = ",cell_click)
+    #cat(qry)
+    dat2 <- as.data.table(dbGetQuery(db, qry))
+    temp <- dat2[,.(fp_code, newsuit)]
+    temp <- rbind(temp, data.table(fp_code = 2001, newsuit = dat2$curr[1]))
+    setorder(temp, fp_code)
+    
+    output$feas_plot <- renderPlotly({
+      fig <- plot_ly(temp, x = ~fp_code, y =~newsuit, type = "scatter", mode = "lines+markers") %>%
+        layout(xaxis = list(showspikes = FALSE, title = list(text = "Period"),
+                            ticktext = c("Current","2021-2040","2041-2060","2061-2080","2081-2100"),
+                            tickvals = temp$fp_code),
+               yaxis = list(range = c(1,5)))
       fig
     })
     
     showModal(modalDialog(
       title = "Click Values",
       plotlyOutput("bgc_plot"),
+      plotlyOutput("feas_plot"),
       easyClose = TRUE,
       footer = NULL
     ))

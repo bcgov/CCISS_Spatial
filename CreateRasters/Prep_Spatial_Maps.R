@@ -10,7 +10,6 @@ addVars <- function(dat) {
   dat[, CMD.def := pmax(0, 500 - PPT.dormant)]
   dat[, CMDMax := CMD_07]   ## TODO: THIS IS NOT NECESSARILY CMD MAX
   dat[, CMD.total := CMD.def + CMD]
-  #dat[, DD_delayed := pmax(0, ((DD_0_at + DD_0_wt)*0.0238) - 1.8386)]
 }
 
 
@@ -48,7 +47,7 @@ ssp_use <- "ssp245"
 periods_use <- list_gcm_periods()
 
 splits <- c(seq(1,nrow(points_dat), by = 2000000),nrow(points_dat)+1)
-BGCmodel <- readRDS("WNA_BGCv12_10May24.rds")
+BGCmodel <- readRDS("../Common_Files/WNA_BGCv12_10May24.rds")
 cols <- fread("./WNAv12_3_SubzoneCols.csv")
 
 gcm_curr <- gcms_use[2]
