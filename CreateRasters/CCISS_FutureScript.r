@@ -3,9 +3,9 @@ library(Rcpp)
 library(climr)
 library(data.table)
 library(terra)
-setwd("~/FFEC/CCISS_ShinyApp/")
+setwd("~/FFEC/spatcciss/")
 
-dat <- fread("CCISS_2021_2040_C4.csv")
+#dat <- fread("CCISS_2021_2040_C4.csv")
 
 cppFunction('NumericVector ModelDir(NumericMatrix x, NumericVector Curr, std::string dir){
   int n = x.nrow();
@@ -85,24 +85,33 @@ cciss_full <- function(SSPred,suit,spp_select){
 }
 
 library(climr)
-periods <- list_gcm_periods()[4]
-edatopes <- c("B2", "C4", "E6")
-species <- c("Pl","Sx","Fd","Cw","Hw","Bl")
-feas_table <- fread("feasibility.csv")
+periods <- list_gcm_periods()[2:4]
+edatopes <- c("E6")
+species <- c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb")
+feas_table <- fread("Feasibility_v13_1.csv")
 setnames(feas_table, c("BGC","SS_NoSpace","Sppsplit","FeasOrig","Spp","Feasible","Mod","OR"))
 
 for(period in periods){
     for(edatope in edatopes){
+      sspreds <- fread(paste0("siteseries_",period,"_",edatope,".csv"))
+      sitenums <- unique(sspreds$SiteRef)
+      splits <- c(seq(1, length(sitenums), by = 2000), length(sitenums) + 1)
       for(spp in species){
         cat(period, edatope, spp, "\n")
-        sspreds <- fread(paste0("siteseries_",period,"_",edatope,".csv"))
-        cciss_res <- cciss_full(sspreds, feas_table, spp)
-        if (spp == species[1]){
-            fwrite(cciss_res,paste0("CCISS_",period,"_",edatope,".csv"))
-        }else{
-            fwrite(cciss_res, append = TRUE, paste0("CCISS_",period,"_",edatope,".csv"))
+        for (i in 1:(length(splits) - 1)){
+          temp <- sspreds[SiteRef %in% sitenums[splits[i]:(splits[i+1]-1)],]
+          cciss_res <- cciss_full(temp, feas_table, spp)
+          if (spp == species[1] && i == 1){
+              fwrite(cciss_res,paste0("cciss_feas/CCISS_",period,"_",edatope,".csv"))
+          }else{
+              fwrite(cciss_res, append = TRUE, paste0("cciss_feas/CCISS_",period,"_",edatope,".csv"))
+          }
         }
+        rm(cciss_res)
+        gc()
       } 
     }
+    rm(sspreds)
+    gc()
 }
 cat("Done!")

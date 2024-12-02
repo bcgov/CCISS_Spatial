@@ -3,6 +3,20 @@ library(data.table)
 library(terra)
 library(ranger)
 
+# dat <- vect("~/FFEC/BGC_v13_Fixed.gpkg")
+# dat <- project(dat, "epsg:4326")
+# writeVector(dat, "BGC_v13.shp")
+
+# dat <- vect("/home/kdaust/FFEC/WNA_BGC_v13_15Nov2024.gpkg")
+# d2 <- simplifyGeom(dat, tolerance = 25)
+# writeVector(d2, "WNA_v13_Simplified.gpkg")
+# d3 <- project(d2, "epsg:4326")
+# d3 <- st_as_sf(d3)
+# d3 <- d3["BGC"]
+# st_write(d3, "WNA_v13.shp")
+# "ogr2ogr -f GeoJSON BGC_v13.geojson BGC_v13.shp"
+# "tippecanoe -o BGC_v13.mbtiles -z16 --simplification=10 --force --coalesce-densest-as-needed --extend-zooms-if-still-dropping --detect-shared-borders BGC_v13.geojson"
+
 addVars <- function(dat) {
   dat[, PPT_MJ := PPT_05 + PPT_06]
   dat[, PPT_JAS := PPT_07 + PPT_08 + PPT_09]
@@ -29,54 +43,64 @@ addVars <- function(dat) {
 # bc_ol <- disagg(bc_ol, fact = 10)
 # t2 <- resample(temp, bc_ol)
 # 
-setwd("~/FFEC/CCISS_ShinyApp/")
-final_dem <- rast("BC_DEM_100m.tif")
-final_dem <- aggregate(final_dem, fact = 2)
+setwd("~/FFEC/spatcciss/")
+final_dem <- rast("BC_DEM_200m.tif")
+#final_dem <- aggregate(final_dem, fact = 2)
 #################climr####################
 points_dat <- as.data.frame(final_dem, cells=T, xy=T)
 colnames(points_dat) <- c("id", "lon", "lat", "elev")
 points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
 
 vars_needed <- c("CMD_sm", "DDsub0_sp", "DD5_sp", "Eref_sm", "Eref_sp", "EXT", 
-  "MWMT", "NFFD_sm", "NFFD_sp", "PAS", "PAS_sp", "SHM", "Tave_sm", 
-  "Tave_sp", "Tmax_sm", "Tmax_sp", "Tmin", "Tmin_at", "Tmin_sm", 
-  "Tmin_sp", "Tmin_wt","CMI", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09","PPT_at","PPT_wt","CMD_07","CMD"
+                 "MWMT", "NFFD_sm", "NFFD_sp", "PAS", "PAS_sp", "SHM", "Tave_sm", 
+                 "Tave_sp", "Tmax_sm", "Tmax_sp", "Tmin", "Tmin_at", "Tmin_sm", 
+                 "Tmin_sp", "Tmin_wt","CMI", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09","PPT_at","PPT_wt","CMD_07","CMD"
 )
 gcms_use <- c("ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR","MRI-ESM2-0")
+runs_use <- c("r1i1p1f1","r4i1p1f1","r2i1p3f1","r2i1p1f1","r1i1p1f1","r1i1p1f1")
 ssp_use <- "ssp245"
 periods_use <- list_gcm_periods()
 
-splits <- c(seq(1,nrow(points_dat), by = 2000000),nrow(points_dat)+1)
-BGCmodel <- readRDS("../Common_Files/WNA_BGCv12_10May24.rds")
+splits <- c(seq(1,nrow(points_dat), by = 1000000),nrow(points_dat)+1)
+load("BGC_RFresp.Rdata")
 cols <- fread("./WNAv12_3_SubzoneCols.csv")
 
-gcm_curr <- gcms_use[2]
-for (gcm_curr in gcms_use[-c(1:3)]){
-  cat(gcm_curr, "\n")
+for (gcm_i in 1:length(gcms_use)){
+  gcm_curr <- gcms_use[gcm_i]
+  cat(gcms_use[gcm_i], "\n")
+  cat(runs_use[gcm_i])
   pred_ls <- list()
   for (i in 1:(length(splits) - 1)){
     cat(i, "\n")
     clim_dat <- downscale(points_dat[splits[i]:(splits[i+1]-1),], 
-                          gcms = gcm_curr,
+                          which_refmap = "refmap_climr",
+                          gcms = gcms_use[gcm_i],
                           gcm_periods = periods_use,
                           ssps = ssp_use,
-                          max_run = 0L,
                           vars = vars_needed,
-                          nthread = 10,
+                          run_nm = runs_use[gcm_i],
+                          nthread = 4,
                           return_refperiod = FALSE)
     addVars(clim_dat)
     clim_dat <- na.omit(clim_dat)
-    setnames(clim_dat, old = "DDsub0_sp", new = "DD_0_sp")
-    temp <- predict(BGCmodel, data = clim_dat, num.threads = 12)
+    temp <- predict(BGC_RFresp, data = clim_dat, num.threads = 12)
     dat <- data.table(cellnum = clim_dat$id, gcm = clim_dat$GCM, period = clim_dat$PERIOD, bgc_pred = temp$predictions)
-    pred_ls[[i]] <- dat
-    rm(clim_dat)
+    if(i == 1){
+      fwrite(dat, paste0("./bgc_preds_raw/BGC_Pred_",gcm_curr,".csv"))
+    }else{
+      fwrite(dat, paste0("./bgc_preds_raw/BGC_Pred_",gcm_curr,".csv"), append = T)
+    }
+    
+    #pred_ls[[i]] <- dat
+    rm(clim_dat,dat)
     gc()
   }
+}
 
-  all_pred <- rbindlist(pred_ls)
-  cat("done predict \n")
-  all_pred <-fread("ECEARTH_Save.csv")
+gcms_use <- c("SZ_Ensemble", "ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR","MRI-ESM2-0") #"SZ_Ensemble", "Zone_Ensemble", 
+
+for(gcm_curr in gcms_use){
+  all_pred <- fread(paste0("bgc_preds_raw/BGC_Pred_",gcm_curr,".csv"))
   all_pred[,bgc_id := as.numeric(as.factor(bgc_pred))]
   for(curr_per in list_gcm_periods()){
     cat(".")
@@ -92,16 +116,11 @@ for (gcm_curr in gcms_use[-c(1:3)]){
     bgc_id[cols, colour := i.colour, on = c(bgc_pred = "classification")]
 
     coltab(final_dem) <- bgc_id[,.(bgc_id,colour)]
-    plot(final_dem)
-    rgbbgc <- colorize(final_dem, to = "rgb")
-    writeRaster(rgbbgc, paste0("./rgb_rasters/bgc_",gcm_curr,"_",curr_per,".tif"), overwrite=TRUE)  
+    #plot(final_dem)
+    rgbbgc <- colorize(final_dem, to = "rgb", alpha = T)
+    writeRaster(rgbbgc, paste0("./bgc_rasters/bgc_",gcm_curr,"_",curr_per,".tif"), overwrite=TRUE)  
   }
 
+
 }
-
-# fwrite(all_pred,"GISS_Save.csv")
-# all_pred <- fread("ACCESS_Save.csv")
-
-# temp <- BGCmodel$forest$independent.variable.names
-# temp[!temp %in% names(clim_dat)]
-# b
+  

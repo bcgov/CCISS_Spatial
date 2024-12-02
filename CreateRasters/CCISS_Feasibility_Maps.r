@@ -3,6 +3,19 @@ library(data.table)
 library(terra)
 library(ranger)
 
+setwd("~/FFEC/spatcciss/")
+#dat <- fread("siteseries_2041_2060_C4.csv")
+#dat <- fread("bgc_data/bgc_summary_all.csv")
+
+# dat <- fread("bgc_data/bgc_summary_all.csv")
+
+# pers <- unique(dat$period)
+# for(p in pers){
+#   sub <- dat[period == p,]
+#   fwrite(sub, paste0("bgc_data/bgc_summary_",p,".csv"))
+# }
+
+
 addVars <- function(dat) {
   dat[, PPT_MJ := PPT_05 + PPT_06]
   dat[, PPT_JAS := PPT_07 + PPT_08 + PPT_09]
@@ -70,92 +83,117 @@ edatopicOverlap_fast <- function(BGC,E1){
   return(combAll)
 }
 
-setwd("~/FFEC/CCISS_ShinyApp/")
-final_dem <- rast("BC_DEM_100m.tif")
-final_dem <- aggregate(final_dem, fact = 2)
+setwd("~/FFEC/spatcciss/")
+final_dem <- rast("BC_DEM_200m.tif")
+#final_dem <- aggregate(final_dem, fact = 2)
 #################climr####################
-# points_dat <- as.data.frame(final_dem, cells=T, xy=T)
-# colnames(points_dat) <- c("id", "lon", "lat", "elev")
-# points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
+points_dat <- as.data.frame(final_dem, cells=T, xy=T)
+colnames(points_dat) <- c("id", "lon", "lat", "elev")
+points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
 
-# vars_needed <- c("CMD_sm", "DDsub0_sp", "DD5_sp", "Eref_sm", "Eref_sp", "EXT", 
-#   "MWMT", "NFFD_sm", "NFFD_sp", "PAS", "PAS_sp", "SHM", "Tave_sm", 
-#   "Tave_sp", "Tmax_sm", "Tmax_sp", "Tmin", "Tmin_at", "Tmin_sm", 
-#   "Tmin_sp", "Tmin_wt","CMI", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09","PPT_at","PPT_wt","CMD_07","CMD"
-# )
-# gcms_use <- c("ACCESS-ESM1-5", "CNRM-ESM2-1", "EC-Earth3", "GFDL-ESM4",
-#               "GISS-E2-1-G", "MIROC6", "MPI-ESM1-2-HR", "MRI-ESM2-0")
-# ssp_use <- c("ssp126", "ssp245", "ssp370")
-# periods_use <- list_gcm_periods()[-1]
+vars_needed <- c("CMD_sm", "DDsub0_sp", "DD5_sp", "Eref_sm", "Eref_sp", "EXT", 
+  "MWMT", "NFFD_sm", "NFFD_sp", "PAS", "PAS_sp", "SHM", "Tave_sm", 
+  "Tave_sp", "Tmax_sm", "Tmax_sp", "Tmin", "Tmin_at", "Tmin_sm", 
+  "Tmin_sp", "Tmin_wt","CMI", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09","PPT_at","PPT_wt","CMD_07","CMD"
+)
+gcms_use <- c("ACCESS-ESM1-5", "CNRM-ESM2-1", "EC-Earth3", "GFDL-ESM4",
+              "GISS-E2-1-G", "MIROC6", "MPI-ESM1-2-HR", "MRI-ESM2-0")
+ssp_use <- c("ssp126", "ssp245", "ssp370")
+periods_use <- list_gcm_periods()[-1]
 
+#splits <- c(seq(1, nrow(points_dat), by = 100000), nrow(points_dat) + 1)
+#load("BGC_RFresp.Rdata")
+#cols <- fread("./WNAv12_3_SubzoneCols.csv")
+ssp_weights <- data.table(ssp = c("ssp126", "ssp245", "ssp370"), weight = c(0.8,1,0.8))
+
+##### current period ########################################################
 # splits <- c(seq(1, nrow(points_dat), by = 500000), nrow(points_dat) + 1)
-# BGCmodel <- readRDS("WNA_BGCv12_10May24.rds")
-# cols <- fread("./WNAv12_3_SubzoneCols.csv")
-# ssp_weights <- data.table(ssp = c("ssp126", "ssp245", "ssp370"), weight = c(0.8,1,0.8))
-
-# period_curr <- periods_use[4]
+# period_curr <- list_obs_periods()
 # for (i in 1:(length(splits) - 1)){
 #     cat(i, "\n")
 #     clim_dat <- downscale(points_dat[splits[i]:(splits[i+1]-1),], 
-#                           gcms = gcms_use,
-#                           gcm_periods = period_curr,
-#                           ssps = ssp_use,
-#                           max_run = 0L,
+#                           which_refmap = "refmap_climr",
+#                           obs_periods = period_curr,
 #                           vars = vars_needed,
-#                           nthread = 32,
+#                           nthread = 6,
 #                           return_refperiod = FALSE)
 #     addVars(clim_dat)
 #     clim_dat <- na.omit(clim_dat)
-#     setnames(clim_dat, old = "DDsub0_sp", new = "DD_0_sp")
-#     temp <- predict(BGCmodel, data = clim_dat, num.threads = 32)
-#     dat <- data.table(cellnum = clim_dat$id, ssp = clim_dat$SSP, gcm = clim_dat$GCM, 
-#     period = clim_dat$PERIOD, bgc_pred = temp$predictions)
-#     dat[ssp_weights, weight := i.weight, on = "ssp"]
-#     dat_sum <- dat[,.(bgc_prop = sum(weight)/20.8), by = .(cellnum, period, bgc_pred)]
-#     if (i == 1){
-#         fwrite(dat_sum, paste0("bgc_summary_", period_curr, ".csv"))
-#     }else{
-#         fwrite(dat_sum, append = TRUE, paste0("bgc_summary_", period_curr, ".csv"))
-#     }
-#     rm(clim_dat, dat, dat_sum)
+#     #setnames(clim_dat, old = "DDsub0_sp", new = "DD_0_sp")
+#     temp <- predict(BGC_RFresp, data = clim_dat, num.threads = 16)
+#     dat <- data.table(cellnum = clim_dat$id,  period = clim_dat$PERIOD, bgc_pred = temp$predictions, bgc_prop = 1)
+#     fwrite(dat, append = TRUE, paste0("bgc_data/bgc_summary_all", ".csv"))
+#     rm(clim_dat, dat)
 #     gc()
 #   }
 #   cat("Done!")
 
-library(ccissr)
-periods <- list_gcm_periods()[-(1:2)]
-edatopes <- c("B2","C4","E6")
+# ###future periods BGC preds
+period_curr <- periods_use[1:3]
+for (i in 1:(length(splits) - 1)){
+    cat(i, "\n")
+    clim_dat <- downscale(points_dat[splits[i]:(splits[i+1]-1),], 
+                          which_refmap = "refmap_climr",
+                          gcms = gcms_use,
+                          gcm_periods = period_curr,
+                          ssps = ssp_use,
+                          max_run = 0L,
+                          vars = vars_needed,
+                          nthread = 6,
+                          return_refperiod = FALSE)
+    addVars(clim_dat)
+    clim_dat <- na.omit(clim_dat)
+    #setnames(clim_dat, old = "DDsub0_sp", new = "DD_0_sp")
+    temp <- predict(BGC_RFresp, data = clim_dat, num.threads = 16)
+    dat <- data.table(cellnum = clim_dat$id, ssp = clim_dat$SSP, gcm = clim_dat$GCM, 
+    period = clim_dat$PERIOD, bgc_pred = temp$predictions)
+    dat[ssp_weights, weight := i.weight, on = "ssp"]
+    dat_sum <- dat[,.(bgc_prop = sum(weight)/20.8), by = .(cellnum, period, bgc_pred)]
+    if (i == 1){
+        fwrite(dat_sum, paste0("bgc_data/bgc_summary_all", ".csv"))
+    }else{
+        fwrite(dat_sum, append = TRUE, paste0("bgc_data/bgc_summary_all", ".csv"))
+    }
+    rm(clim_dat, dat, dat_sum)
+    gc()
+  }
+  cat("Done!")
+
+#periods <- c(list_obs_periods(), list_gcm_periods()[-c(1,5)])
+periods <- c("2021_2040")
+edatopes <- c("E6")
 ##current BGCs
 bgc_rast <- rast("BC_BGC_rast.tif")
 points_dat <- as.data.frame(bgc_rast, cells=T, xy=T)
 rast_id <- fread("BC_BGC_rast_ids.csv")
 bgc_points <- as.data.table(points_dat)
 bgc_points[rast_id, BGC := i.BGC, on = "bgc_id"]
+bgc_all <- fread(paste0("bgc_data/bgc_summary_all",".csv"))
 
-for(period in periods){
-  bgc_sum <- fread(paste0("bgc_summary_",period,".csv"))
+for(period_curr in periods){
+  bgc_sum <- bgc_all[period == period_curr,]
   bgc_sum[bgc_points, BGC := i.BGC, on = c(cellnum = "cell")]
   setcolorder(bgc_sum, c("cellnum","period","BGC","bgc_pred","bgc_prop"))
   setnames(bgc_sum, c("SiteRef","FuturePeriod","BGC","BGC.pred","BGC.prop"))
 
   for(edatope in edatopes){
-    cat(period, edatope, "\n")
-    eda_table <- copy(ccissr::E1)
+    cat(period_curr, edatope, "\n")
+    eda_table <- fread("Edatopic_v13_1.csv")
     eda_table[,HasPos := if(any(Edatopic %in% edatope)) T else F, by = .(SS_NoSpace)]
     eda_table <- unique(eda_table[(HasPos),])
     ###########################################################
 
     sites <- unique(bgc_sum$SiteRef)
-    splits <- c(seq(1, length(sites), by = 1000000), length(sites) + 1)
+    splits <- c(seq(1, length(sites), by = 600000), length(sites) + 1)
     for (i in 1:(length(splits) - 1)){
         cat(i, "\n")
         srs <- sites[splits[i]:(splits[i+1]-1)]
         dat_sml <- bgc_sum[SiteRef %in% srs,]
         sspred <- edatopicOverlap_fast(dat_sml, E1 = eda_table)
         if (i == 1){
-            fwrite(sspred, paste0("siteseries_",period, "_", edatope, ".csv"))
+            fwrite(sspred, paste0("siteseries_",period_curr, "_", edatope, ".csv"))
         }else{
-            fwrite(sspred, append = TRUE, paste0("siteseries_",period, "_", edatope, ".csv"))
+            fwrite(sspred, append = TRUE, paste0("siteseries_",period_curr, "_", edatope, ".csv"))
         }
         rm(sspred)
         gc()
