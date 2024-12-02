@@ -97,6 +97,24 @@ for (gcm_i in 1:length(gcms_use)){
   }
 }
 
+# ### BGC subzone and zone ensemble vote maps
+# fnames <- list.files("bgc_preds_raw", full.names = T)
+# dat <- fread("bgc_preds_raw/BGC_Pred_ACCESS-ESM1-5.csv")
+# flist <- lapply(fnames, FUN = function(x){fread(x)})
+
+# bgc_all <- rbindlist(flist)
+# bgc_all[,zone_pred := gsub("[[:lower:]]|[[:digit:]]|_.*","",bgc_pred)]
+
+# sz_votes <- bgc_all[,.(sz_vote = .N), by = .(cellnum, period, bgc_pred)]
+# sz_ensemble <- sz_votes[sz_votes[,.I[which.max((sz_vote))], by = .(cellnum, period)]$V1]
+# fwrite(sz_ensemble, "BGC_Preds_SZ_Ensemble.csv")
+
+# zone_votes <- bgc_all[,.(sz_vote = .N), by = .(cellnum, period, zone_pred)]
+# zone_ensemble <- zone_votes[zone_votes[,.I[which.max((sz_vote))], by = .(cellnum, period)]$V1]
+# setnames(zone_ensemble, old = "zone_pred", new = "bgc_pred")
+# fwrite(zone_ensemble, "BGC_Preds_Zone_Ensemble.csv")
+
+
 gcms_use <- c("SZ_Ensemble", "ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR","MRI-ESM2-0") #"SZ_Ensemble", "Zone_Ensemble", 
 
 for(gcm_curr in gcms_use){
