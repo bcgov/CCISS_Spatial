@@ -52,9 +52,21 @@ gcms_use <- c("ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR"
 runs_use <- c("r1i1p1f1","r4i1p1f1","r2i1p3f1","r2i1p1f1","r1i1p1f1","r1i1p1f1")
 
 ui <- fluidPage(
-  tabsetPanel(id = "tabs",
-              
+  navbarPage(id = "tabs",
+             title = HTML('&nbsp;&nbsp;<img src="logo.svg" class="navbar-logo">'), ##navhelplink("The CCISS Tool", "cciss_about_nav")
+             theme = {
+               theme <- bslib::bs_theme(version = 5,
+                                        bootswatch = "sandstone",
+                                        primary = "#003366")
+               # theme$layers$bootswatch$defaults[[3]][[2]] <-
+               #   "$navbar-default-bg: primary !default;"
+               theme
+             },
+             collapsible = TRUE,
+             windowTitle = "Spatial CCISS",
               tabPanel("Provincial Map",
+                       tags$head(includeCSS("./www/style.css")),
+                       tags$head(includeScript("./www/cciss.js")),
                        sidebarLayout(
                          sidebarPanel(
                            radioButtons("type","Display BGC or Feasibility", choices = c("BGC","Feasibility"), selected = "BGC"),
@@ -85,11 +97,14 @@ ui <- fluidPage(
                                 uiOutput("ui_select_2"),
                                 actionButton("clear_map_2","Toggle CCISS"),
                                 actionButton("reset_district","Clear Selected District"),
+                                downloadButton("download_cciss","Download Raster"),
                                 tags$head(tags$style(".modal-body{ min-height:70vh}"))
                                 ),
                          column(5,
                                 leafletOutput("map_2", height = "90vh")),
                          column(5,
+                                selectInput("xvariable","X-Axis Variable", choices = c("Time","MAT","MAP","CMD","DD5")),
+                                checkboxInput("zone_sz","Summarise by Zone?",value = TRUE),
                                 plotOutput("summary_plot")
                                 )
                        )
@@ -100,6 +115,9 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
+  
+  dist_nm <- reactiveVal()
+  
   output$ui_select <- renderUI({
     if(input$type == "BGC"){
       tagList(
@@ -112,9 +130,9 @@ server <- function(input, output, session) {
       tagList(
         h1("Feasibility Options"),
         selectInput("map_stat","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
-                                                                 "Feasibility Change" = "MeanChangeTest",
+                                                                 "Feasibility Change" = "MeanChange",
                                                                  "Add/Retreat" = "AddRet"), multiple = FALSE),
-        selectInput("period_feas","Select Period", choices = periods[-5]),
+        selectInput("period_feas","Select Period", choices = c("Obs", periods[-5])),
         selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
         selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
         
@@ -308,9 +326,9 @@ server <- function(input, output, session) {
       tagList(
         h1("Feasibility Options"),
         selectInput("map_stat_2","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
-                                                                 "Feasibility Change" = "MeanChangeTest",
+                                                                 "Feasibility Change" = "MeanChange",
                                                                  "Add/Retreat" = "AddRet"), multiple = FALSE),
-        selectInput("period_feas_2","Select Period", choices = periods[-5]),
+        selectInput("period_feas_2","Select Period", choices = c("Obs", periods[-5])),
         selectInput("edatope_feas_2","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
         selectInput("species_feas_2", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
         
@@ -425,11 +443,30 @@ server <- function(input, output, session) {
       run_curr <- runs_use[gcms_use == input$gcm_select_2]
     }
     if(input$type_2 == "BGC"){
-      plot_bgc(dbCon, stdarea, xvariable = "MAT", gcm_nm = gcm_curr, run_nm = run_curr)
+      if(input$zone_sz) smry <- "Zone"
+      else smry <- "Subzone"
+      plot_bgc(dbCon, stdarea, xvariable = input$xvariable, gcm_nm = gcm_curr, run_nm = run_curr, unit = smry)
     }else{
-      plot_species(dbCon, stdarea, xvariable = "MAT", gcm_nm = gcm_curr, run_nm = run_curr, edatope = input$edatope_feas_2)
+      plot_species(dbCon, stdarea, xvariable = input$xvariable, gcm_nm = gcm_curr, 
+                   run_nm = run_curr, edatope = input$edatope_feas_2, spp_select = input$species_feas_2)
     }
   })
+  
+  output$download_cciss <- downloadHandler(
+    filename = function(){
+      paste0("Feasibility_",input$dist_click, "_", input$period_feas_2,"_", input$species_feas_2,"_",input$edatopic_feas_2,".tif")
+    },
+    content = function(file){
+      #browser()
+      lname <- paste0("Feasibility_",input$period_feas_2,"_",input$edatope_feas_2,"_",input$species_feas_2,".tif")
+      bnd <- dist_bnds[ORG_UNIT == input$dist_click,.(ymax, ymin, xmax, xmin)]
+      boundary <- t(bnd)[,1]
+      rst <- dbGetFeasible(dbCon, table_name = "feasibility_raw2", layer_name = lname, boundary = boundary)
+      #rst <- rst/10
+      writeRaster(rst, file, datatype = "INT1U")
+    }
+  )
+
 }
 
 # Run the application 
