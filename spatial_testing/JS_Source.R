@@ -326,7 +326,7 @@ addRasterTiles_v2 <- function(map) {
     Shiny.addCustomMessageHandler("add_novelty_2", function(tile_url){
       t2 = tile_url + "?nocache";
       console.log(t2);
-      novelty = L.tileLayer.colorpicker(t2, {
+      var novelty = L.tileLayer.colorPicker(t2, {
         maxNativeZoom: 12,
         maxZoom: 14,
         minNativeZoom: 5,
@@ -390,8 +390,12 @@ addRasterTiles_v2 <- function(map) {
       if(type_2 !== "CCISS"){
         var a = colorpicker_2.getColor(event.latlng);
         var bgcCol = findNearestColor(prepRgb(a), baseCols);
-        var bgc = subzoneColors[bgcCol];
-        Shiny.setInputValue("bgc_pred_click",bgc);
+        if(type_2 == "SZ"){
+            var bgc = subzoneColors[bgcCol];
+          }else{
+            var bgc = zoneColors[bgcCol];
+          }
+        Shiny.setInputValue("bgc_pred_click_2",bgc);
       }
     });
 
@@ -429,6 +433,7 @@ addDistricts <- function(map) {
             //Now districts regions
             
       district_flag = true;
+      var distHL = "DQU";
       var styleHL = {
             weight: 3,
             color: "#fc036f",
@@ -444,7 +449,7 @@ addDistricts <- function(map) {
           vectorTileLayerStyles: {
             [layerId]: function(properties, zoom) {
               return {
-                weight: 0.5,
+                weight: 1,
                 color: "#000000",
                 fill: true,
                 fillOpacity: 0
@@ -457,12 +462,47 @@ addDistricts <- function(map) {
           }
         }
       };
+      
       distLayer = L.vectorGrid.protobuf(
         "', district_tileserver, '",
         vectorTileOptionsDist("Districts", "', district_tilelayer, '", true,
                           "tilePane", "dist_code", "dist_code")
       )
-      this.layerManager.addLayer(distLayer, "tile", "Districts", "Districts")
+      //map_2.layerManager.addLayer(distLayer, "tile", "dist_code", "dist_code");
+      
+      Shiny.addCustomMessageHandler("addRegionTile",function(data){
+        var url = data.url;
+        var cname = data.name;
+        var cid = data.id;
+        console.log(url);
+        map_2.removeLayer(distLayer);
+        distLayer = L.vectorGrid.protobuf(url, vectorTileOptionsDist(cname, cname, true,
+                          "tilePane", cid, cid)
+        )
+        map_2.layerManager.addLayer(distLayer, "tile", cid, cid);
+        distLayer.bindTooltip(function(e) {
+          const fieldNames = Object.keys(e.properties);
+          return e.properties[fieldNames[0]];
+        }, {sticky: true, textsize: "12px", opacity: 1});
+        distLayer.bringToFront();
+        
+        distLayer.on("click", function(e){
+          //distLayer.unbindTooltip();
+          console.log(e);
+          district_flag = false;
+          distLayer.resetFeatureStyle(distHL);
+          distHL = e.layer.properties[cid];
+          //console.log(e.layer);
+          Shiny.setInputValue("dist_click",distHL);
+          distLayer.setFeatureStyle(distHL, styleHL);
+          flag = false;
+          
+         
+          });
+      });
+      
+
+
       
       Shiny.addCustomMessageHandler("selectDist",function(x){
         distLayer.bringToFront();
@@ -472,30 +512,19 @@ addDistricts <- function(map) {
         distLayer.unbindTooltip();
       });
       
-      var distHL;
-      distLayer.on("click", function(e){
-        //distLayer.unbindTooltip();
-        console.log("district click");
-        district_flag = false;
-        distLayer.resetFeatureStyle(distHL);
-        distHL = e.layer.properties.dist_code;
-        Shiny.setInputValue("dist_click",distHL);
-        distLayer.setFeatureStyle(distHL, styleHL);
-        //subzLayer.bringToFront();
-        flag = false;
-      });
-      
       Shiny.addCustomMessageHandler("reset_district",function(x){
         distLayer.resetFeatureStyle(distHL);
         district_flag = true;
         distLayer.bindTooltip(function(e) {
-          return e.properties.dist_code;
+          const fieldNames = Object.keys(e.properties);
+          return e.properties[fieldNames[0]];
         }, {sticky: true, textsize: "12px", opacity: 1});
         //Shiny.setInputValue("dist_click",null);
       });
       
       distLayer.bindTooltip(function(e) {
-        return e.properties.dist_code;
+        const fieldNames = Object.keys(e.properties);
+        return e.properties[fieldNames[0]];
       }, {sticky: true, textsize: "12px", opacity: 1});
       
       // end districts
@@ -714,3 +743,17 @@ logVars <- function(dat,
   }
   return(dat)
 }
+
+# const pxBounds = e.layer._pxBounds;
+# 
+# // Convert pixel bounds to geographic bounds
+# const southwest = map_2.unproject(pxBounds.getBottomLeft(), map_2.getZoom());
+# const northeast = map_2.unproject(pxBounds.getTopRight(), map_2.getZoom());
+# 
+# // Create a Leaflet LatLngBounds object
+# const bounds = L.latLngBounds(southwest, northeast);
+# 
+# console.log("Corrected Geographic Bounds:", bounds);
+# 
+# // Zoom the map to fit these bounds
+# map_2.fitBounds(bounds);

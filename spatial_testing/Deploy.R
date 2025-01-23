@@ -6,7 +6,8 @@ server <- temp$`shiny-server`
 droplet_ssh(server, "rm /srv/shiny-server/cciss_spatial/app.R")
 droplet_ssh(server, "rm /srv/shiny-server/cciss_spatial/plot_functions.R")
 
-droplet_upload(server, "./spatial_testing/app.R", "/srv/shiny-server/spatial_test/app.R")
+droplet_upload(server, "./spatial_testing/app.R", "/srv/shiny-server/cciss_spatial/app.R")
+analogsea::droplet_upload(server, "./spatial_testing/plot_functions.R", "/srv/shiny-server/cciss_spatial/")
 droplet_ssh(server, "systemctl restart shiny-server")
 #
 #
@@ -24,5 +25,7 @@ analogsea::droplet_upload(server, "./htmlwidgets", "/srv/shiny-server/cciss_spat
 analogsea::droplet_upload(server, "./Raster_Templated.tif", "/srv/shiny-server/cciss_spatial")
 analogsea::droplet_upload(server, "./www", "/srv/shiny-server/cciss_spatial")
 analogsea::droplet_upload(server, "./district_bounds.csv", "/srv/shiny-server/cciss_spatial")
+analogsea::droplet_upload(server, "./flp_bounds.csv", "/srv/shiny-server/cciss_spatial")
+analogsea::droplet_upload(server, "./district_bnds.gpkg", "/srv/shiny-server/cciss_spatial")
 analogsea::droplet_ssh(server, "chown -R shiny:shiny /srv/shiny-server")
 analogsea::droplet_ssh(server, "systemctl restart shiny-server")

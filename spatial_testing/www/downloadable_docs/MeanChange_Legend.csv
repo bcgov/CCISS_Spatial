@@ -1,0 +1,16 @@
+MeanChange,Raster_ID
+Species Disappearing,-100
+Decrease of 2.5,-25
+Decrease of 2,-20
+Decrease of 1.5,-15
+Decrease of 1,-10
+Decrease of 0.5,-5
+No Change,0
+Increase of 0.5,5
+Increase of 1,10
+Increase of 1.5,15
+Increase of 2,20
+Increase of 2.5,25
+Species Adding (now S1),100
+Species Adding (now S2),200
+Species Adding (now S3),300
