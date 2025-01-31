@@ -117,6 +117,7 @@ addRasterTiles <- function(map) {
     map = this;
     colorpicker = null;
     type = "SZ";
+    distFlag = false;
     
     function hexToRgb(hex) {
       hex = hex.replace(\'#\', \'\');
@@ -154,7 +155,7 @@ addRasterTiles <- function(map) {
         }
       }
       
-      return nearestColor;
+      return [nearestColor, smallestDistance];
     }
     
     Shiny.addCustomMessageHandler("clear_tiles", function(dat){
@@ -167,6 +168,9 @@ addRasterTiles <- function(map) {
       if(colorpicker !== null){
         colorpicker.addTo(map);
       }
+      if(distLayer !== null){
+        distLayer.bringToFront();
+      }
     });
 
     Shiny.addCustomMessageHandler("add_novelty", function(tile_url){
@@ -178,6 +182,9 @@ addRasterTiles <- function(map) {
         minNativeZoom: 5,
         minZoom: 5,
       }).addTo(map);
+      if(distLayer !== null){
+        distLayer.bringToFront();
+      }
     });
 
     Shiny.addCustomMessageHandler("remove_novelty", function(tile_url){
@@ -190,7 +197,23 @@ addRasterTiles <- function(map) {
       if(novelty !== null){
         novelty.addTo(map);
       }
+      if(distLayer !== null){
+        distLayer.bringToFront();
+      }
     });
+    
+    Shiny.addCustomMessageHandler("resize_map", function(x){
+      setTimeout(() => { //make sure it happens after the resize
+        map.invalidateSize();
+      }, 600);
+    });
+    
+    colorpicker = L.tileLayer.colorPicker("https://tileserver.thebeczone.ca/data/bgc_Historic_1961_1990/{z}/{x}/{y}.webp?nochache", {
+        maxNativeZoom: 12,
+        maxZoom: 14,
+        minNativeZoom: 5,
+        minZoom: 5,
+      }).addTo(map);
 
     Shiny.addCustomMessageHandler("update_tiles", function(dat){
       //console.log("working");
@@ -214,6 +237,13 @@ addRasterTiles <- function(map) {
         minNativeZoom: 5,
         minZoom: 5,
       }).addTo(map);
+      if(distLayer !== null){
+        distLayer.bringToFront();
+      }
+    });
+    
+    colorpicker.on("click", function(e){
+      Shiny.setInputValue("cciss_click", e.latlng);
     });
 
     this.on("overlayadd", function(e){
@@ -227,28 +257,30 @@ addRasterTiles <- function(map) {
       if(type !== "CCISS"){
         var a = colorpicker.getColor(event.latlng);
         var bgcCol = findNearestColor(prepRgb(a), baseCols);
-        var bgc = subzoneColors[bgcCol];
+        var bgc = subzoneColors[bgcCol[0]];
         Shiny.setInputValue("bgc_pred_click",bgc);
       }
     });
 
-    this.on("mousemove", function(event) {
-      if(type !== "CCISS"){
+    map.on("mousemove", function(event) {
+      if(type !== "CCISS" & !distFlag){
         var a = colorpicker.getColor(event.latlng);
         //console.log(a);
         if (a !== null & a[3] > 0) {
           var bgcCol = findNearestColor(prepRgb(a), baseCols);
           if(type == "SZ"){
-            var bgc = subzoneColors[bgcCol];
+            var bgc = subzoneColors[bgcCol[0]];
           }else{
-            var bgc = zoneColors[bgcCol];
+            var bgc = zoneColors[bgcCol[0]];
           }
           
+          if(bgcCol[1] < 5){
+            L.popup()
+            .setLatLng(event.latlng)
+            .setContent(bgc)
+            .openOn(this);
+          }
           
-          L.popup()
-          .setLatLng(event.latlng)
-          .setContent(bgc)
-          .openOn(this);
         }
       }
     });
@@ -258,172 +290,172 @@ addRasterTiles <- function(map) {
   map
 }
 
-addRasterTiles_v2 <- function(map) {
-  map <- htmlwidgets::onRender(map, paste0('
-    function(el, x, data) {
-      ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$colour, "':'", 
-                                                subzones_colours_ref$classification,"'", collapse = ","), "};"), 
-                                           paste0("var zoneColors = {", paste0("'", zone_colours$colour, "':'", 
-                                                                               zone_colours$classification,"'", collapse = ","), "};"),'
-      
-    baseCols = Object.keys(subzoneColors);
-    //console.log("working1");
-    map_2 = this;
-    colorpicker_2 = null;
-    type_2 = "SZ";
-    
-    function hexToRgb(hex) {
-      hex = hex.replace(\'#\', \'\');
-      const r = parseInt(hex.substring(0, 2), 16);
-      const g = parseInt(hex.substring(2, 4), 16);
-      const b = parseInt(hex.substring(4, 6), 16);
-      return { r, g, b };
-    }
-    
-    function prepRgb(rgb) {
-      const r = rgb[0];
-      const g = rgb[1];
-      const b = rgb[2];
-      return { r, g, b };
-    }
-    
-    
-    function findNearestColor(inputRgb, colorList) {
-      let nearestColor = null;
-      let smallestDistance = Infinity;
-      
-      for (const color of colorList) {
-        const colorRgb = hexToRgb(color);
-        
-        // Calculate Euclidean distance
-        const distance = Math.sqrt(
-          Math.pow(colorRgb.r - inputRgb.r, 2) +
-          Math.pow(colorRgb.g - inputRgb.g, 2) +
-          Math.pow(colorRgb.b - inputRgb.b, 2)
-        );
-        
-        if (distance < smallestDistance) {
-          smallestDistance = distance;
-          nearestColor = color;
-        }
-      }
-      
-      return nearestColor;
-    }
-    
-    Shiny.addCustomMessageHandler("clear_tiles_2", function(dat){
-      if(colorpicker_2 !== null){
-        map_2.removeLayer(colorpicker_2);
-      }
-    });
-    
-    Shiny.addCustomMessageHandler("unclear_tiles_2", function(dat){
-      if(colorpicker_2 !== null){
-        colorpicker_2.addTo(map_2);
-      }
-    });
-
-    Shiny.addCustomMessageHandler("add_novelty_2", function(tile_url){
-      t2 = tile_url + "?nocache";
-      console.log(t2);
-      var novelty = L.tileLayer.colorPicker(t2, {
-        maxNativeZoom: 12,
-        maxZoom: 14,
-        minNativeZoom: 5,
-        minZoom: 5,
-      }).addTo(map_2);
-      if(distLayer !== null){
-        distLayer.bringToFront();
-      }
-    });
-
-    Shiny.addCustomMessageHandler("remove_novelty_2", function(tile_url){
-      if(novelty !== null){
-       map_2.removeLayer(novelty);
-      }
-    });
-
-    Shiny.addCustomMessageHandler("unclear_novelty_2", function(tile_url){
-      if(novelty !== null){
-        novelty.addTo(map_2);
-        if(distLayer !== null){
-          distLayer.bringToFront();
-        }
-      }
-    });
-
-    Shiny.addCustomMessageHandler("update_tiles_2", function(dat){
-      //console.log("working");
-      tile_url = dat["url"];
-      type_2 = dat["type"];
-      t2 = tile_url + "?nocache";
-      console.log(t2);
-      if(type_2 == "SZ"){
-        baseCols = Object.keys(subzoneColors);
-      }else{
-        baseCols = Object.keys(zoneColors);
-      }
-      
-      if(colorpicker_2 !== null){
-        map_2.removeLayer(colorpicker_2);
-      }
-      //map.removeLayer(colorpicker_2);
-      colorpicker_2 = L.tileLayer.colorPicker(t2, {
-        maxNativeZoom: 12,
-        maxZoom: 14,
-        minNativeZoom: 5,
-        minZoom: 5,
-      }).addTo(map_2);
-      if(distLayer !== null){
-        distLayer.bringToFront();
-      }
-    });
-
-    this.on("overlayadd", function(e){
-      //console.log("adding BGC");
-      if(colorpicker_2 !== null){
-        colorpicker_2.bringToFront();
-      }
-    });
-    
-    this.on("click", function(event) {
-      if(type_2 !== "CCISS"){
-        var a = colorpicker_2.getColor(event.latlng);
-        var bgcCol = findNearestColor(prepRgb(a), baseCols);
-        if(type_2 == "SZ"){
-            var bgc = subzoneColors[bgcCol];
-          }else{
-            var bgc = zoneColors[bgcCol];
-          }
-        Shiny.setInputValue("bgc_pred_click_2",bgc);
-      }
-    });
-
-    map_2.on("mousemove", function(event) {
-      if(type_2 !== "CCISS"){
-        var a = colorpicker_2.getColor(event.latlng);
-        console.log(a);
-        if (a !== null & a[3] > 0 & !district_flag) {
-          var bgcCol = findNearestColor(prepRgb(a), baseCols);
-          if(type_2 == "SZ"){
-            var bgc = subzoneColors[bgcCol];
-          }else{
-            var bgc = zoneColors[bgcCol];
-          }
-          
-          
-          L.popup()
-          .setLatLng(event.latlng)
-          .setContent(bgc)
-          .openOn(this);
-        }
-      }
-    });
-    }
-      '
-  ))
-  map
-}
+# addRasterTiles_v2 <- function(map) {
+#   map <- htmlwidgets::onRender(map, paste0('
+#     function(el, x, data) {
+#       ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$colour, "':'", 
+#                                                 subzones_colours_ref$classification,"'", collapse = ","), "};"), 
+#                                            paste0("var zoneColors = {", paste0("'", zone_colours$colour, "':'", 
+#                                                                                zone_colours$classification,"'", collapse = ","), "};"),'
+#       
+#     baseCols = Object.keys(subzoneColors);
+#     //console.log("working1");
+#     map_2 = this;
+#     colorpicker_2 = null;
+#     type_2 = "SZ";
+#     
+#     function hexToRgb(hex) {
+#       hex = hex.replace(\'#\', \'\');
+#       const r = parseInt(hex.substring(0, 2), 16);
+#       const g = parseInt(hex.substring(2, 4), 16);
+#       const b = parseInt(hex.substring(4, 6), 16);
+#       return { r, g, b };
+#     }
+#     
+#     function prepRgb(rgb) {
+#       const r = rgb[0];
+#       const g = rgb[1];
+#       const b = rgb[2];
+#       return { r, g, b };
+#     }
+#     
+#     
+#     function findNearestColor(inputRgb, colorList) {
+#       let nearestColor = null;
+#       let smallestDistance = Infinity;
+#       
+#       for (const color of colorList) {
+#         const colorRgb = hexToRgb(color);
+#         
+#         // Calculate Euclidean distance
+#         const distance = Math.sqrt(
+#           Math.pow(colorRgb.r - inputRgb.r, 2) +
+#           Math.pow(colorRgb.g - inputRgb.g, 2) +
+#           Math.pow(colorRgb.b - inputRgb.b, 2)
+#         );
+#         
+#         if (distance < smallestDistance) {
+#           smallestDistance = distance;
+#           nearestColor = color;
+#         }
+#       }
+#       
+#       return nearestColor;
+#     }
+#     
+#     Shiny.addCustomMessageHandler("clear_tiles_2", function(dat){
+#       if(colorpicker_2 !== null){
+#         map_2.removeLayer(colorpicker_2);
+#       }
+#     });
+#     
+#     Shiny.addCustomMessageHandler("unclear_tiles_2", function(dat){
+#       if(colorpicker_2 !== null){
+#         colorpicker_2.addTo(map_2);
+#       }
+#     });
+# 
+#     Shiny.addCustomMessageHandler("add_novelty_2", function(tile_url){
+#       t2 = tile_url + "?nocache";
+#       console.log(t2);
+#       var novelty = L.tileLayer.colorPicker(t2, {
+#         maxNativeZoom: 12,
+#         maxZoom: 14,
+#         minNativeZoom: 5,
+#         minZoom: 5,
+#       }).addTo(map_2);
+#       if(distLayer !== null){
+#         distLayer.bringToFront();
+#       }
+#     });
+# 
+#     Shiny.addCustomMessageHandler("remove_novelty_2", function(tile_url){
+#       if(novelty !== null){
+#        map_2.removeLayer(novelty);
+#       }
+#     });
+# 
+#     Shiny.addCustomMessageHandler("unclear_novelty_2", function(tile_url){
+#       if(novelty !== null){
+#         novelty.addTo(map_2);
+#         if(distLayer !== null){
+#           distLayer.bringToFront();
+#         }
+#       }
+#     });
+# 
+#     Shiny.addCustomMessageHandler("update_tiles_2", function(dat){
+#       //console.log("working");
+#       tile_url = dat["url"];
+#       type_2 = dat["type"];
+#       t2 = tile_url + "?nocache";
+#       console.log(t2);
+#       if(type_2 == "SZ"){
+#         baseCols = Object.keys(subzoneColors);
+#       }else{
+#         baseCols = Object.keys(zoneColors);
+#       }
+#       
+#       if(colorpicker_2 !== null){
+#         map_2.removeLayer(colorpicker_2);
+#       }
+#       //map.removeLayer(colorpicker_2);
+#       colorpicker_2 = L.tileLayer.colorPicker(t2, {
+#         maxNativeZoom: 12,
+#         maxZoom: 14,
+#         minNativeZoom: 5,
+#         minZoom: 5,
+#       }).addTo(map_2);
+#       if(distLayer !== null){
+#         distLayer.bringToFront();
+#       }
+#     });
+# 
+#     this.on("overlayadd", function(e){
+#       //console.log("adding BGC");
+#       if(colorpicker_2 !== null){
+#         colorpicker_2.bringToFront();
+#       }
+#     });
+#     
+#     this.on("click", function(event) {
+#       if(type_2 !== "CCISS"){
+#         var a = colorpicker_2.getColor(event.latlng);
+#         var bgcCol = findNearestColor(prepRgb(a), baseCols);
+#         if(type_2 == "SZ"){
+#             var bgc = subzoneColors[bgcCol];
+#           }else{
+#             var bgc = zoneColors[bgcCol];
+#           }
+#         Shiny.setInputValue("bgc_pred_click_2",bgc);
+#       }
+#     });
+# 
+#     map_2.on("mousemove", function(event) {
+#       if(type_2 !== "CCISS"){
+#         var a = colorpicker_2.getColor(event.latlng);
+#         console.log(a);
+#         if (a !== null & a[3] > 0 & !district_flag) {
+#           var bgcCol = findNearestColor(prepRgb(a), baseCols);
+#           if(type_2 == "SZ"){
+#             var bgc = subzoneColors[bgcCol];
+#           }else{
+#             var bgc = zoneColors[bgcCol];
+#           }
+#           
+#           
+#           L.popup()
+#           .setLatLng(event.latlng)
+#           .setContent(bgc)
+#           .openOn(this);
+#         }
+#       }
+#     });
+#     }
+#       '
+#   ))
+#   map
+# }
 
 
 ##district tilelayers
@@ -475,46 +507,52 @@ addDistricts <- function(map) {
         var cname = data.name;
         var cid = data.id;
         console.log(url);
-        map_2.removeLayer(distLayer);
+        map.removeLayer(distLayer);
         distLayer = L.vectorGrid.protobuf(url, vectorTileOptionsDist(cname, cname, true,
                           "tilePane", cid, cid)
         )
-        map_2.layerManager.addLayer(distLayer, "tile", cid, cid);
+        map.layerManager.addLayer(distLayer, "tile", cid, cid);
         distLayer.bindTooltip(function(e) {
           const fieldNames = Object.keys(e.properties);
           return e.properties[fieldNames[0]];
         }, {sticky: true, textsize: "12px", opacity: 1});
         distLayer.bringToFront();
+        distFlag = true;
         
         distLayer.on("click", function(e){
           //distLayer.unbindTooltip();
           console.log(e);
-          district_flag = false;
+          //district_flag = false;
           distLayer.resetFeatureStyle(distHL);
           distHL = e.layer.properties[cid];
+          //map.invalidateSize()
           //console.log(e.layer);
           Shiny.setInputValue("dist_click",distHL);
           distLayer.setFeatureStyle(distHL, styleHL);
           flag = false;
-          
+          distFlag = false;
          
           });
       });
       
+      Shiny.addCustomMessageHandler("clear_district",function(x){
+        map.removeLayer(distLayer);
+        distFlag = false;
+      });
 
-
-      
       Shiny.addCustomMessageHandler("selectDist",function(x){
         distLayer.bringToFront();
+        distFlag = true;
       });
       
       Shiny.addCustomMessageHandler("clearTooltips",function(x){
         distLayer.unbindTooltip();
+        distFlag = false;
       });
       
       Shiny.addCustomMessageHandler("reset_district",function(x){
         distLayer.resetFeatureStyle(distHL);
-        district_flag = true;
+        distFlag = true;
         distLayer.bindTooltip(function(e) {
           const fieldNames = Object.keys(e.properties);
           return e.properties[fieldNames[0]];
@@ -528,6 +566,109 @@ addDistricts <- function(map) {
       }, {sticky: true, textsize: "12px", opacity: 1});
       
       // end districts
+    }'
+  ))
+  map
+}
+
+###find a BEC map
+addSelectBEC <- function(map) {
+  map <- registerPlugin(map, plugins$vgplugin)
+  map <- htmlwidgets::onRender(map, paste0('
+    function(el, x, data) {
+      ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$classification, "':'", subzones_colours_ref$colour,"'", collapse = ","), "}"), '
+      
+      L.bec_layer_opacity2 = 0.75
+      
+      var vectorTileOptions=function(layerName, layerId, activ,
+                             lfPane, colorMap, prop, id) {
+        return {
+          vectorTileLayerName: layerName,
+          interactive: activ, // makes it able to trigger js events like click
+          vectorTileLayerStyles: {
+            [layerId]: function(properties, zoom) {
+              return {
+                weight: 0,
+                fillColor: colorMap[properties[prop]],
+                fill: true,
+                fillOpacity: L.bec_layer_opacity2
+              }
+            }
+          },
+          pane : lfPane,
+          getFeatureId: function(f) {
+              return f.properties[id];
+          }
+        }
+        
+      };
+      
+      var subzLayer = L.vectorGrid.protobuf(
+        "', bgc_tileserver, '",
+        vectorTileOptions("bec_select", "', bgc_tilelayer, '", true,
+                          "tilePane", subzoneColors, "BGC", "BGC")
+      )
+      this.layerManager.addLayer(subzLayer, "tile", "bec_select", "BGCs");
+      
+      //highlight on click
+      var styleHL = {
+            weight: 1.5,
+            color: "#fc036f",
+            fillColor: "#FFFB00",
+            fillOpacity: 1,
+            fill: true
+          };
+      var selectHighlight = ["SBSdk","SBSmc2"];
+      subzLayer.on("click", function(e){
+        //console.log("click");
+        selectHighlight.forEach((ID,i) => {
+          subzLayer.resetFeatureStyle(ID);
+        });
+        Shiny.setInputValue("becselect_click",e.layer.properties.BGC);
+        var properties = e.layer.properties
+  			  highlight = properties.BGC
+          subzLayer.setFeatureStyle(properties.BGC, styleHL);
+      });
+
+      var highlight;
+		  var clearHighlight = function() {
+		  	if (highlight) {
+		  		subzLayer.resetFeatureStyle(highlight);
+		  	}
+		  	highlight = null;
+		  }
+		  
+      subzLayer.on("mouseout", function(e) {
+        clearHighlight();
+      })
+
+      Shiny.addCustomMessageHandler("highlightBEC",function(BECSelect){
+        //console.log(BECSelect);
+        if(!Array.isArray(BECSelect)){
+          BECSelect = [BECSelect];
+        }
+        if(selectHighlight){
+          selectHighlight.forEach((ID,i) => {
+            subzLayer.resetFeatureStyle(ID);
+          });
+          selectHighlight = BECSelect;
+          BECSelect.forEach((ID,i) => {
+            subzLayer.setFeatureStyle(ID, styleHL);
+          });
+          Shiny.setInputValue("becselect_click",BECSelect);
+        }
+      });
+      
+      Shiny.addCustomMessageHandler("clearBEC",function(x){
+          selectHighlight.forEach((ID,i) => {
+            subzLayer.resetFeatureStyle(ID);
+          });
+      });
+      
+      subzLayer.bindTooltip(function(e) {
+        return e.properties.BGC
+      }, {sticky: true, textsize: "10px", opacity: 1});
+      subzLayer.bringToFront();
     }'
   ))
   map

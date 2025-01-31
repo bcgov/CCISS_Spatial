@@ -98,6 +98,7 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
     col_scheme <- sz_scheme
     ylabel <- "BGC Subzone Area ('000 sq.km)"
   } 
+  #browser()
   bgc_area <- dbGetQuery(dbCon, paste0("select * from ",tabnm," where studyarea = '",
                                        studyarea,"' and not home and gcm = '",gcm_nm,"' and run = '",run_nm,"'"))
   bgc_obs <- dbGetQuery(dbCon, paste0("select * from ",tabnm," where studyarea = '",studyarea,"'and not home and period = '1961_1990'"))
@@ -116,7 +117,7 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
     bgc_area_f[gcm_run, keep := i.keep, on = c("gcm","run")]
     bgc_area_f <- bgc_area_f[(keep),]
     bgc_area_f[,freq := freq * cellarea]
-    bgc_area_f <- bgc_area_f[!(gcm == "obs" & period == "2001_2020"), .(gcm, period,freq)]
+    bgc_area_f <- bgc_area_f[!(gcm == "obs" & period == "2001_2020"), .(gcm, period,freq)] #
   }
   
   bgc_temp <- bgc_area[,.(totalarea = sum(freq)), by = .(bgc_pred)]
@@ -157,6 +158,7 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
   
   if(!is.null(focal_bgc)){
     temp <- data.table(gcm = unique(bgc_area_f$gcm),period = NA, freq = bgc_area_f[gcm == "obs",freq], xvar = bgc_area_f[gcm == "obs",xvar])
+    temp[is.na(xvar), xvar := 1971]
     bgc_area_f <- rbind(temp, bgc_area_f)[gcm != "obs",]
     temp_wide <- dcast(bgc_area_f, xvar ~ gcm, value.var = "freq")
     temp_wide[is.na(temp_wide)] <- 0
