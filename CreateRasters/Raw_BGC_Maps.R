@@ -43,8 +43,21 @@ addVars <- function(dat) {
 # bc_ol <- disagg(bc_ol, fact = 10)
 # t2 <- resample(temp, bc_ol)
 # 
-setwd("~/FFEC/spatcciss/")
+#setwd("~/FFEC/spatcciss/")
+library(sf)
 final_dem <- rast("BC_DEM_200m.tif")
+bgcs <- st_read("../Common_Files/BGC_v13_Fixed.gpkg")
+bgcs <- st_transform(bgcs, 4326)
+bgcs$bgc_id <- seq_along(bgcs$BGC)
+bgc_ids <- data.table(bgc = bgcs$BGC, bgc_id = bgcs$bgc_id)
+
+bgcs <- vect(bgcs)
+bc_bgc <- rasterize(bgcs, final_dem, field = "bgc_id")
+writeRaster(bc_bgc,"bcg_rast.tif")
+fwrite(bgc_ids, "bgc_ids.csv")
+
+bc_bgc <- rast("BC_BGC_rast.tif.tif")
+
 #final_dem <- aggregate(final_dem, fact = 2)
 #################climr####################
 points_dat <- as.data.frame(final_dem, cells=T, xy=T)

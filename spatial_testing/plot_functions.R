@@ -30,6 +30,62 @@
 # focal_species = "Fd"
 # edatope = "C4"
 
+temp <- c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw")
+cw_spp <- data.table(Spp = temp, spp_id = seq_along(temp))
+
+plot_suitability <- function(dbCon, cellid, edatope, spp_name){
+  spp_id <- cw_spp[Spp == spp_name,spp_id]
+  eda <- switch(edatope,
+                "B2" = 1,
+                "C4" = 2,
+                "E6" = 3
+  )
+  
+  dat <- dbGetQuery(dbCon, paste0("select fp_code, newsuit, prop1, prop2, prop3 from cciss_feas where cellid = ",
+                                  cellid," and edatope = ",eda," and spp_id = ",spp_id)) |> as.data.table()
+  dat_h <- dbGetQuery(dbCon, paste0("select suit from cciss_historic where cellid = ",
+                      cellid," and edatope = ",eda," and spp_id = ",spp_id))[,1]
+  
+  if(length(dat_h) == 0){
+    res <- "X"
+  }else if(dat_h > 300) {
+    res <- "X"
+  } else {
+    res <- as.character(dat_h/100)
+  }
+  
+  temp <- data.table(Period = 1961, CCISS_Suit = res, Suitability = c("E1","E2","E3","EX"), value = 0)
+  temp[grep(res, Suitability),value := 100]
+  
+  setnames(dat, c("Period","CCISS_Suit","E1","E2","E3"))
+  dat[,EX := 100L - (E1 + E2 + E3)]
+  dat[,CCISS_Suit := as.character(CCISS_Suit/100)]
+  dat[CCISS_Suit > 3.5, CCISS_Suit := "X"]
+  missing <- setdiff(c(1981,2001,2021,2041,2061), dat$Period)
+  if(length(missing) >= 1) {
+    temp2 <- data.table(Period = missing, CCISS_Suit = "X", E1 = 0, E2 = 0, E3 = 0, EX = 100)
+    dat <- rbind(dat, temp2)
+  }
+  dat2 <- melt(dat, id.vars = c("Period","CCISS_Suit"), variable.name = "Suitability")
+  dat2 <- rbind(dat2, temp)
+  dat2[, CCISS_Suit := paste0("CCISS Suit: ",CCISS_Suit)]
+  palette.suit <-   c("E1" = "#006400", "E2" = "#1E90FF", "E3" = "#EEC900", "EX" = "#000000")
+  
+  fplt <- ggplot(dat2, aes(x = Period, y = value, color = Suitability, fill = Suitability)) +
+    geom_bar_interactive(stat = "identity", aes(tooltip = CCISS_Suit)) +
+    scale_color_manual(values = palette.suit, aesthetics = c("colour","fill")) +
+    ylab("Percent of Votes") +
+    theme_bw() +
+    scale_x_continuous(breaks=seq(1961,2070,by = 20),labels = c("1961-1990","2001-2020 (obs)","2001-2020","2021-2040","2041-2060","2061-2080"))
+
+  x <- girafe(ggobj = fplt)
+  x <- girafe_options(x,
+                      opts_tooltip(zindex = 1000000000) )
+  x
+}
+
+
+
 dbGetFeasible <- function(dbCon, table_name, layer_name, boundary){
   rastque <- "rast"
   nameque <- table_name

@@ -23,7 +23,7 @@ source("./plot_functions.R", local = TRUE)
 dist_bnds <- fread("./district_bounds.csv")
 flp_bnds <- fread("./flp_bounds.csv")
 dist_bnds <- rbind(dist_bnds,flp_bnds)
-db <- dbConnect(RSQLite::SQLite(), "/mnt/spatcciss/cciss_db.sqlite") #"/mnt/spatcciss/cciss_db.sqlite"
+db <- dbConnect(RSQLite::SQLite(), "cciss_db.sqlite") #"/mnt/spatcciss/cciss_db.sqlite"
 
 dbCon <- dbPool(
   drv = RPostgres::Postgres(),
@@ -47,7 +47,7 @@ gcms <- c("SZ_Ensemble", "Zone_Ensemble", "ACCESS-ESM1-5","EC-Earth3","GISS-E2-1
 periods <- c("2001_2020", "2021_2040", "2041_2060", "2061_2080","2081_2100")
 base_tileserver <- "https://tileserver.thebeczone.ca/data/bgc_GCM_PERIOD/{z}/{x}/{y}.webp"
 novelty_tileserver <- "https://tileserver.thebeczone.ca/data/Novelty_GCM_PERIOD/{z}/{x}/{y}.webp"
-species_tileserver <- "https://tileserver.thebeczone.ca/data/STAT_PERIOD_EDATOPE_SPECIES/{z}/{x}/{y}.FORMAT"
+species_tileserver <- "https://tileserver.thebeczone.ca/data/STAT_PERIOD_EDATOPE_SPECIES/{z}/{x}/{y}.webp"
 
 colour_ref <- subzones_colours_ref$colour
 names(colour_ref) <- subzones_colours_ref$classification
@@ -112,8 +112,11 @@ ui <- fluidPage(
                              condition = "input.type !== 'BGC' & input.period_type == 'Future'",
                              selectInput("period_feas","Select Period", choices = c(periods[-5])),     
                            ),
-                           checkboxInput("novelty","Display Novelty?", value = FALSE),
-                           actionButton("clear_map","Toggle CCISS"),
+                           conditionalPanel(
+                             condition = "input.period_type != 'Historic'",
+                             checkboxInput("novelty","Display Novelty?", value = FALSE),
+                           ),
+                           actionButton("clear_map","Hide/Show Layer"),
                            tags$head(tags$style(".modal-body{ min-height:70vh}")),
                            width = 2
                          ),
@@ -142,14 +145,14 @@ ui <- fluidPage(
                            ),
                            
                            # Plot container (initially hidden)
-                           #hidden(
+                           hidden(
                              div(id = "plot-container",
                                  selectInput("xvariable","X-Axis Variable", choices = c("Time","MAT","MAP","CMD","DD5")),
                                  checkboxInput("zone_sz","Summarise by Zone?",value = TRUE),
                                  actionButton("reset_district","Clear Selected District"),
                                  girafeOutput("summary_plot")
                              )
-                           #)
+                           )
                          )
                        )
               ),
@@ -278,9 +281,6 @@ server <- function(input, output, session) {
       }
       tile_url <- gsub("GCM", pnm, novelty_tileserver)
       tile_url <- gsub("PERIOD", prd, tile_url)
-      # if(input$gcm_select == "SZ_Ensemble"){
-      #   tile_url <- gsub("png","webp",tile_url)
-      # }
       session$sendCustomMessage("add_novelty",tile_url)
     }else{
       session$sendCustomMessage("remove_novelty","puppy")
@@ -362,7 +362,7 @@ server <- function(input, output, session) {
         period <- "2001_2020"
       } else if (input$period_type == "obs") {
         stat <- input$map_stat
-        period <- "Obs"
+        period <- "obs_2001_2020"
       } else if (input$period_type == "Future") {
         stat <- input$map_stat
         period <- input$period_feas
@@ -372,8 +372,6 @@ server <- function(input, output, session) {
         tile_url <- gsub("PERIOD", period, tile_url)
         tile_url <- gsub("EDATOPE", input$edatope_feas, tile_url)
         tile_url <- gsub("SPECIES", input$species_feas, tile_url)
-        if(input$period_type %in% c("Historic","obs")) fmt <- "webp" else fmt <- "png"
-        tile_url <- gsub("FORMAT", fmt, tile_url)
         #cat(tile_url)
         session$sendCustomMessage("remove_novelty", "puppy")
         dat <- list(url = tile_url, type = "CCISS")
@@ -425,67 +423,55 @@ server <- function(input, output, session) {
     }
   })
   
-  observeEvent(input$cciss_click,{
+  observeEvent(input$map_click,{
     lat <- input$map_click$lat
     lng <- input$map_click$lng
     
     if(input$type == "Feasibility"){
       cell_click <- cellFromXY(t_rast, cbind(lng,lat))
       curr_cell(cell_click)
-      fp <- substr(input$period_feas,1,4)
-      qry <- paste0("select * from bgc_preds where cellid = ",cell_click)
-      #cat(qry)
-      dat <- dbGetQuery(db, qry)
+      print(cell_click)
+      # qry <- paste0("select * from bgc_preds where cellid = ",cell_click)
+      # #cat(qry)
+      # dat <- dbGetQuery(db, qry)
+      # 
+      # output$bgc_plot <- renderPlotly({
+      #   
+      #   fig <- plot_ly(data = dat, x = ~fp_code,
+      #                  y = ~bgc_prop, split = ~bgc_pred, type = 'bar',
+      #                  color = ~bgc_pred, colors = colour_ref, hovertemplate = "%{y}",
+      #                  text = ~bgc_pred, textposition = 'inside', textfont = list(color = "black", size = 12),
+      #                  texttemplate = "%{text}") %>%
+      #     layout(yaxis = list(title = "", tickformat = ".1%"),
+      #            # xaxis = list(showspikes = FALSE, title = list(text = "Period"),
+      #            #              ticktext = c("2021-2040","2041-2060","2061-2080","2081-2100"),
+      #            #              tickvals = dat$fp_code),
+      #            barmode = 'stack')
+      #   fig
+      # })
       
-      output$bgc_plot <- renderPlotly({
-        
-        fig <- plot_ly(data = dat, x = ~fp_code,
-                       y = ~bgc_prop, split = ~bgc_pred, type = 'bar',
-                       color = ~bgc_pred, colors = colour_ref, hovertemplate = "%{y}",
-                       text = ~bgc_pred, textposition = 'inside', textfont = list(color = "black", size = 12),
-                       texttemplate = "%{text}") %>%
-          layout(yaxis = list(title = "", tickformat = ".1%"),
-                 # xaxis = list(showspikes = FALSE, title = list(text = "Period"),
-                 #              ticktext = c("2021-2040","2041-2060","2061-2080","2081-2100"),
-                 #              tickvals = dat$fp_code),
-                 barmode = 'stack')
-        fig
+      output$feas_plot <- renderGirafe({
+        plot_suitability(dbCon, cellid = cell_click, edatope = input$edatope_feas, spp_name = input$species_feas)
       })
       
-      eda <- switch(input$edatope_feas,
-                    "B2" = 1,
-                    "C4" = 2,
-                    "E6" = 3
-      )
-      qry <- paste0("select * from cciss_feas where edatope = ",
-                    eda," and species = '", input$species_feas,
-                    "' and cellid = ",cell_click)
-      #cat(qry)
-      dat2 <- as.data.table(dbGetQuery(db, qry))
-      temp <- dat2[,.(fp_code, newsuit)]
-      if(nrow(dat2) < 4){
-        temp2 <- data.table(fp_code = setdiff(c(2001,2021,2041,2061),dat2$fp_code), newsuit = 5)
-        temp <- rbind(temp, temp2)
-      }
-      temp <- rbind(temp, data.table(fp_code = 1981, newsuit = dat2$curr[1]))
-      setorder(temp, fp_code)
+      # if(nrow(dat2) < 4){
+      #   temp2 <- data.table(fp_code = setdiff(c(2001,2021,2041,2061),dat2$fp_code), newsuit = 5)
+      #   temp <- rbind(temp, temp2)
+      # }
+      shinyalert(title = "Feasibility Plot",
+                 text = tagList(
+                   girafeOutput("feas_plot")
+                 ),
+                 html = TRUE
+                 )
       
-      output$feas_plot <- renderPlotly({
-        fig <- plot_ly(temp, x = ~fp_code, y =~newsuit, type = "scatter", mode = "lines+markers") %>%
-          layout(xaxis = list(showspikes = FALSE, title = list(text = "Period"),
-                              ticktext = c("Current","2001-2020", "2021-2040","2041-2060","2061-2080"),
-                              tickvals = temp$fp_code),
-                 yaxis = list(range = c(5,1)))
-        fig
-      })
-      
-      showModal(modalDialog(
-        title = paste0("BGC and Feasibility Projections"),
-        plotlyOutput("bgc_plot"),
-        plotlyOutput("feas_plot"),
-        easyClose = TRUE,
-        footer = NULL
-      ))
+      # showModal(modalDialog(
+      #   title = paste0("BGC and Feasibility Projections"),
+      #   #plotlyOutput("bgc_plot"),
+      #   girafeOutput("feas_plot"),
+      #   easyClose = TRUE,
+      #   footer = NULL
+      # ))
     } else {
       if(input$novelty){
         test_fut <- dbGetQuery(dbCon, paste0("select * from future_climate where \"GCM\" = '",input$gcm_select,

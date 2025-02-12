@@ -28,46 +28,58 @@ periods <- list_gcm_periods()[-5]
 edatopes <- c("B2","C4","E6")
 species <- c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Lw", "Sb")
 
-period <- "2021_2040"
+cell <- cellFromXY(final_dem, matrix(c(-124.88886,48.69794), nrow = 1))
+
+period <- "2001_2020"
 edatope <- "C4"
-spp <- "Fd"
+spp <- "Cw"
 for(period in periods){
-    for(edatope in edatopes){
-        dat <- fread(paste0("cciss_feas/CCISS_",period,"_",edatope,".csv"))
-        for(spp in species){
-            cat(period, edatope, spp, "\n")
-            dat_spp <- dat[Spp == spp,]
-            dat_spp <- dat_spp[Curr < 3.5 | Newsuit < 3.5,]
-            dat_spp[,FeasChange := Curr - Newsuit]
-            dat_spp[Newsuit > 3.5 & Curr <= 3, FeasChange := -10]
-            dat_spp[Curr > 3.5, FeasChange := round(FeasChange) * 10]
-            dat_spp[,FeasChange := round(FeasChange/0.5)*0.5]
-            dat_spp[,FeasRound := round(Newsuit)]
-            dat_spp[FeasRound > 3, FeasRound := NA]
-            dat_spp[,AddRet := Improve]
-            dat_spp[Decline > Improve, AddRet := -Decline]
-            dat_spp[,AddRet := round(AddRet/20)*20]
-
-            ##new feasibility
-            # values(final_dem) <- NA
-            # final_dem[dat_spp$SiteRef] <- dat_spp$FeasRound
-            # coltab(final_dem) <- suit_cols
-            # final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
-            # writeRaster(final_rgb, paste0("final_rgb/NewFeas_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
-
-            ##mean change
-            values(final_dem) <- NA
-            final_dem[dat_spp$SiteRef] <- dat_spp$FeasChange + 15
-            final_rgb <- subst(final_dem, change_cols$value, t(col2rgb(change_cols$Colour,alpha = TRUE)),names = c("red","green", "blue","alpha"))
-            writeRaster(final_rgb, paste0("final_rgb/MeanChangeTest_",period,"_",edatope,"_",spp,".tif"),overwrite = T)
-            ## Prop improve/decline
-            values(final_dem) <- NA
-            final_dem[dat_spp$SiteRef] <- dat_spp$AddRet
-            coltab(final_dem) <- addret_cols
-            final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
-            writeRaster(final_rgb, paste0("final_rgb/AddRet_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
-            gc()
-        }
+  for(edatope in edatopes){
+    dat <- fread(paste0("CCISS_",period,"_",edatope,".csv"))
+    for(spp in species){
+      cat(period, edatope, spp, "\n")
+      dat_spp <- dat[Spp == spp,]
+      dat_spp <- dat_spp[Curr < 3.5 | Newsuit < 3.5,]
+      dat_spp[,FeasChange := Curr - Newsuit]
+      dat_spp[Newsuit > 3.5 & Curr <= 3, FeasChange := -10]
+      dat_spp[Curr > 3.5, FeasChange := round(FeasChange) * 10]
+      dat_spp[,FeasChange := round(FeasChange/0.5)*0.5]
+      dat_spp[,FeasRound := round(Newsuit)]
+      dat_spp[,CurrRound := round(Curr)]
+      dat_spp[CurrRound > 3, CurrRound := NA]
+      dat_spp[FeasRound > 3, FeasRound := NA]
+      dat_spp[,AddRet := Improve]
+      dat_spp[Decline > Improve, AddRet := -Decline]
+      dat_spp[,AddRet := round(AddRet/20)*20]
+      
+      ##historic feasibility
+      values(final_dem) <- NA
+      final_dem[dat_spp$SiteRef] <- dat_spp$CurrRound
+      coltab(final_dem) <- suit_cols
+      final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
+      writeRaster(final_dem, paste0("HistoricFeas_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
+      
+      
+      # ##new feasibility
+      # values(final_dem) <- NA
+      # final_dem[dat_spp$SiteRef] <- dat_spp$FeasRound
+      # coltab(final_dem) <- suit_cols
+      # final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
+      # writeRaster(final_rgb, paste0("final_rgb/NewFeas_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
+      
+      # ##mean change
+      # values(final_dem) <- NA
+      # final_dem[dat_spp$SiteRef] <- dat_spp$FeasChange + 15
+      # final_rgb <- subst(final_dem, change_cols$value, t(col2rgb(change_cols$Colour,alpha = TRUE)),names = c("red","green", "blue","alpha"))
+      # writeRaster(final_rgb, paste0("final_rgb/MeanChangeTest_",period,"_",edatope,"_",spp,".tif"),overwrite = T)
+      
+      # ## Prop improve/decline
+      # values(final_dem) <- NA
+      # final_dem[dat_spp$SiteRef] <- dat_spp$AddRet
+      # coltab(final_dem) <- addret_cols
+      # final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
+      # writeRaster(final_rgb, paste0("final_rgb/AddRet_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
+      gc()
     }
+  }
 }
-cat("Done!")
