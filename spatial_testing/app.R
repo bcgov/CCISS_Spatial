@@ -23,7 +23,6 @@ source("./plot_functions.R", local = TRUE)
 dist_bnds <- fread("./district_bounds.csv")
 flp_bnds <- fread("./flp_bounds.csv")
 dist_bnds <- rbind(dist_bnds,flp_bnds)
-db <- dbConnect(RSQLite::SQLite(), "cciss_db.sqlite") #"/mnt/spatcciss/cciss_db.sqlite"
 
 dbCon <- dbPool(
   drv = RPostgres::Postgres(),
@@ -34,7 +33,6 @@ dbCon <- dbPool(
   password = Sys.getenv("BCGOV_PWD")
 )
 onStop(function(){
-  dbDisconnect(db)
   poolClose(dbCon)
 })
 t_rast <- rast("Raster_Templated.tif")
@@ -67,11 +65,9 @@ ui <- fluidPage(
   navbarPage(id = "tabs",
              title = HTML('&nbsp;&nbsp;<img src="logo.svg" class="navbar-logo">'), ##navhelplink("The CCISS Tool", "cciss_about_nav")
              theme = {
-               theme <- bslib::bs_theme(version = 5,
+               theme <- bslib::bs_theme(version = 4,
                                         bootswatch = "sandstone",
                                         primary = "#003366")
-               # theme$layers$bootswatch$defaults[[3]][[2]] <-
-               #   "$navbar-default-bg: primary !default;"
                theme
              },
              collapsible = TRUE,
@@ -83,7 +79,7 @@ ui <- fluidPage(
                        sidebarLayout(
                          sidebarPanel(
                            radioButtons("region_type","Subregion Type", choices = c("None", "District","FLP Area")),
-                           radioButtons("type","Display BGC or Feasibility", choices = c("BGC","Feasibility"), selected = "BGC"),
+                           radioButtons("type","Display BGC or Suitability", choices = c("BGC","Suitability"), selected = "BGC"),
                            radioButtons("period_type","Choose a Time Period", choices = list(
                                                                                              "Reference (1961-1990)" = "Historic", 
                                                                                              "Observed (2001-2020)" = "obs",
@@ -97,15 +93,15 @@ ui <- fluidPage(
                            
                            conditionalPanel(
                              condition = "input.type !== 'BGC'",
-                             h1("Feasibility Options"),
-                             selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
+                             h1("Suitability Options"),
+                             selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), selected = "C4", multiple = FALSE),
                              selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
                            ),
                            
                            conditionalPanel(
                              condition = "input.type !== 'BGC' & input.period_type !== 'Historic'",
-                             selectInput("map_stat","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
-                                                                                      "Feasibility Change" = "MeanChange"), multiple = FALSE)     
+                             selectInput("map_stat","Select Map Type", choices = list("Projected Suitability" = "NewFeas",
+                                                                                      "Suitability Change" = "MeanChange"), multiple = FALSE)     
                            ),
                            
                            conditionalPanel(
@@ -117,6 +113,15 @@ ui <- fluidPage(
                              checkboxInput("novelty","Display Novelty?", value = FALSE),
                            ),
                            actionButton("clear_map","Hide/Show Layer"),
+                           
+                           checkboxInput("findabec","Find-A-BEC"),
+                           conditionalPanel(condition = "input.findabec == true",
+                                            pickerInput("selectBGC","Select Zone", 
+                                                        choices = c("(N)",zones), 
+                                                        multiple = F,selected = "(N)"),
+                                            pickerInput("selectSubzone","Select Subzone(s)", choices = "",options = pickerOptions(actionsBox = T), multiple = T),
+                                            span(textOutput("selectedBEC", inline = T),style= "font-size:24px")
+                                            ),
                            tags$head(tags$style(".modal-body{ min-height:70vh}")),
                            width = 2
                          ),
@@ -147,52 +152,20 @@ ui <- fluidPage(
                            # Plot container (initially hidden)
                            hidden(
                              div(id = "plot-container",
+                                 h2("Summary by Region"),
                                  selectInput("xvariable","X-Axis Variable", choices = c("Time","MAT","MAP","CMD","DD5")),
-                                 checkboxInput("zone_sz","Summarise by Zone?",value = TRUE),
+                                 conditionalPanel(
+                                   condition = "input.type == 'BGC'",
+                                   checkboxInput("zone_sz","Summarise by Zone?",value = TRUE),
+                                 ),
                                  actionButton("reset_district","Clear Selected District"),
+                                 actionButton("action_download","Download Data"),
                                  girafeOutput("summary_plot")
                              )
                            )
                          )
                        )
-              ),
-              # tabPanel("Summary by Region",
-              #          fluidRow(
-              #            column(2,
-              #                   radioButtons("region_type","Subregion Type", choices = c("None", "District","FLP Area")),
-              #                   radioButtons("type_2","Display BGC or Feasibility", choices = c("BGC","Feasibility"), selected = "BGC"),
-              #                   uiOutput("ui_select_2"),
-              #                   actionButton("clear_map_2","Toggle CCISS"),
-              #                   actionButton("reset_district","Clear Selected District"),
-              #                   actionButton("action_download","Download Data"),
-              #                   tags$head(tags$style(".modal-body{ min-height:70vh}"))
-              #                   ),
-              #            column(5,
-              #                   leafletOutput("map_2", height = "90vh")),
-              #            column(5,
-              #                   selectInput("xvariable","X-Axis Variable", choices = c("Time","MAT","MAP","CMD","DD5")),
-              #                   checkboxInput("zone_sz","Summarise by Zone?",value = TRUE),
-              #                   girafeOutput("summary_plot")
-              #                   )
-              #          )
-              #          ),
-             tabPanel(value = "tab6", title = "Find-a-BEC",
-                      fluidRow(
-                        column(2,
-                               selectInput("selectBGC","Select Zone", 
-                                           choices = c("(N)",zones), 
-                                           multiple = F,selected = "(N)"),
-                               selectInput("selectSubzone","Select subzone(s)",
-                                           choices = "",multiple = T
-                               ),
-                               span(textOutput("selectedBEC", inline = T),style= "font-size:24px")
-                        ),
-                        column(10,
-                               leafletOutput("findBGCMap", height = "80vh")
-                        )
-                      )
-                      
-             )
+              )
   )
   
 )
@@ -202,56 +175,6 @@ server <- function(input, output, session) {
   
   dist_nm <- reactiveVal()
   globalLeg <- reactiveValues(Legend = NULL)
-  
-  
-  # period_type <- reactiveVal(value = "Historic")
-  # 
-  # observeEvent(input$period_type,{
-  #   period_type(input$period_type)
-  # })
-  
-  
-  
-  # output$ui_select <- renderUI({
-  #   if(input$type == "BGC"){
-  #     if(input$period_type == "Future"){
-  #       tagList(
-  #         h1("GCM Options"),
-  #         selectInput("gcm_select","Select GCM", choices = gcms, selected = gcms[1]),
-  #         selectInput("period_select","Select Period", choices = periods, selected = periods[1])        
-  #         )
-  #     }
-  #     
-  #   }else{
-  #     if(input$period_type %in% c("Historic")) {
-  #       tagList(
-  #         h1("Historic Feasibility"),
-  #         selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
-  #         selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
-  #         
-  #       )
-  #     } else if(input$period_type == "obs") {
-  #       tagList(
-  #         h1("Current Projected Feasibility"),
-  #         selectInput("map_stat","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
-  #                                                                  "Feasibility Change" = "MeanChange"), multiple = FALSE), #"Add/Retreat" = "AddRet"
-  #         selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
-  #         selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
-  #         
-  #       )
-  #     } else if(input$period_type == "Future") {
-  #       tagList(
-  #         h1("Future Projected Feasibility"),
-  #         selectInput("map_stat","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
-  #                                                                  "Feasibility Change" = "MeanChange"), multiple = FALSE),
-  #         selectInput("period_feas","Select Period", choices = c(periods[-5])),
-  #         selectInput("edatope_feas","Select Edatope", choices = c("B2","C4","E6"), multiple = FALSE),
-  #         selectInput("species_feas", "Select Species", choices = c("Pl","Sx","Fd","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
-  #         
-  #       )
-  #     }
-  #   }
-  # })
   
   observeEvent(input$clear_map,{
     if(input$clear_map %% 2 != 0){
@@ -275,7 +198,7 @@ server <- function(input, output, session) {
         pnm <- input$gcm_select
         prd <- input$period_select
       }
-      if(input$type == "Feasibility"){
+      if(input$type == "Suitability"){
         pnm <- "SZ_Ensemble"
         prd <- input$period_feas
       }
@@ -306,19 +229,14 @@ server <- function(input, output, session) {
                                 options = leaflet::pathOptions(pane = "mapPane")) %>%
       addPlugin() %>%
       addBGCTiles() %>%
-      addRasterTiles() %>%
       addDistricts() %>%
+      addSelectBEC() %>%
       addLayersControl(
         baseGroups = c("Hillshade","Satellite"),
         overlayGroups = c("BGCs"),
         position = "topright") %>%
       hideGroup("BGCs")
   })
-  
-  # tile_url <- gsub("GCM", "Historic", base_tileserver)
-  # tile_url <- gsub("PERIOD", "1961_1990", tile_url)
-  # dat <- list(url = tile_url, type = "SZ")
-  # session$sendCustomMessage("update_tiles",dat)
   
   ##add tiles
   observe({
@@ -427,77 +345,16 @@ server <- function(input, output, session) {
     lat <- input$map_click$lat
     lng <- input$map_click$lng
     
-    if(input$type == "Feasibility"){
-      cell_click <- cellFromXY(t_rast, cbind(lng,lat))
-      curr_cell(cell_click)
-      print(cell_click)
-      # qry <- paste0("select * from bgc_preds where cellid = ",cell_click)
-      # #cat(qry)
-      # dat <- dbGetQuery(db, qry)
-      # 
-      # output$bgc_plot <- renderPlotly({
-      #   
-      #   fig <- plot_ly(data = dat, x = ~fp_code,
-      #                  y = ~bgc_prop, split = ~bgc_pred, type = 'bar',
-      #                  color = ~bgc_pred, colors = colour_ref, hovertemplate = "%{y}",
-      #                  text = ~bgc_pred, textposition = 'inside', textfont = list(color = "black", size = 12),
-      #                  texttemplate = "%{text}") %>%
-      #     layout(yaxis = list(title = "", tickformat = ".1%"),
-      #            # xaxis = list(showspikes = FALSE, title = list(text = "Period"),
-      #            #              ticktext = c("2021-2040","2041-2060","2061-2080","2081-2100"),
-      #            #              tickvals = dat$fp_code),
-      #            barmode = 'stack')
-      #   fig
-      # })
-      
-      output$feas_plot <- renderGirafe({
-        plot_suitability(dbCon, cellid = cell_click, edatope = input$edatope_feas, spp_name = input$species_feas)
-      })
-      
-      # if(nrow(dat2) < 4){
-      #   temp2 <- data.table(fp_code = setdiff(c(2001,2021,2041,2061),dat2$fp_code), newsuit = 5)
-      #   temp <- rbind(temp, temp2)
-      # }
-      shinyalert(title = "Feasibility Plot",
-                 text = tagList(
-                   girafeOutput("feas_plot")
-                 ),
-                 html = TRUE
-                 )
-      
-      # showModal(modalDialog(
-      #   title = paste0("BGC and Feasibility Projections"),
-      #   #plotlyOutput("bgc_plot"),
-      #   girafeOutput("feas_plot"),
-      #   easyClose = TRUE,
-      #   footer = NULL
-      # ))
-    } else {
-      if(input$novelty){
-        test_fut <- dbGetQuery(dbCon, paste0("select * from future_climate where \"GCM\" = '",input$gcm_select,
-                                             "' and \"PERIOD\" = '",input$period_select,"' and bgc_pred = '",input$bgc_pred_click,"'")) |> as.data.table()
-        test_hist <- dbGetQuery(dbCon, paste0("select * from historic_climate where bgc = '",input$bgc_pred_click,"'")) |> as.data.table()
-        test_icv <- dbGetQuery(dbCon, paste0("select * from historic_icv where bgc = '",input$bgc_pred_click,"'")) |> as.data.table()
-        output$feas_plot <- renderPlotly({
-          plot_analog_novelty(clim.target = test_fut, clim.analog = test_hist, clim.icv = test_icv, pcs = NULL)
-        })
-        
-        showModal(modalDialog(
-          title = paste0("Analog Novelty Plot"),
-          plotlyOutput("feas_plot", height = "70vh"),
-          size = "l",
-          easyClose = TRUE,
-          footer = NULL
-        ))
-      } else {
+    if(!input$dist_flag){
+      if(input$type == "Suitability"){
         cell_click <- cellFromXY(t_rast, cbind(lng,lat))
         curr_cell(cell_click)
-        fp <- substr(input$period_feas,1,4)
+        #print(cell_click)
         qry <- paste0("select * from bgc_preds where cellid = ",cell_click)
         #cat(qry)
-        dat <- dbGetQuery(db, qry)
+        dat <- dbGetQuery(dbCon, qry)
         
-        output$bgc_plot_2 <- renderPlotly({
+        output$bgc_plot <- renderPlotly({
           
           fig <- plot_ly(data = dat, x = ~fp_code,
                          y = ~bgc_prop, split = ~bgc_pred, type = 'bar',
@@ -505,23 +362,115 @@ server <- function(input, output, session) {
                          text = ~bgc_pred, textposition = 'inside', textfont = list(color = "black", size = 12),
                          texttemplate = "%{text}") %>%
             layout(yaxis = list(title = "", tickformat = ".1%"),
-                   # xaxis = list(showspikes = FALSE, title = list(text = "Period"),
-                   #              ticktext = c("2021-2040","2041-2060","2061-2080","2081-2100"),
-                   #              tickvals = dat$fp_code),
+                   xaxis = list(showspikes = FALSE, title = list(text = "Period"),
+                                ticktext = c("1961-1990","2001-2020 (obs)", "2001-2020", "2021-2040","2041-2060","2061-2080"),
+                                tickvals = c(1961,1981,2001,2021,2041,2061)),
                    barmode = 'stack')
           fig
         })
         
+        output$feas_plot <- renderGirafe({
+          plot_suitability(dbCon, cellid = cell_click, edatope = input$edatope_feas, spp_name = input$species_feas)
+        })
+        
         showModal(modalDialog(
-          title = paste0("BGC Projections"),
-          plotlyOutput("bgc_plot_2"),
+          title = paste0("BGC and Suitability Projections"),
+          plotlyOutput("bgc_plot"),
+          girafeOutput("feas_plot"),
           easyClose = TRUE,
-          footer = NULL
+          footer = NULL,
+          size = "m"
         ))
+      } else {
+        if(input$novelty){
+          test_fut <- dbGetQuery(dbCon, paste0("select * from future_climate where \"GCM\" = '",input$gcm_select,
+                                               "' and \"PERIOD\" = '",input$period_select,"' and bgc_pred = '",input$bgc_pred_click,"'")) |> as.data.table()
+          test_hist <- dbGetQuery(dbCon, paste0("select * from historic_climate where bgc = '",input$bgc_pred_click,"'")) |> as.data.table()
+          test_icv <- dbGetQuery(dbCon, paste0("select * from historic_icv where bgc = '",input$bgc_pred_click,"'")) |> as.data.table()
+          output$feas_plot <- renderPlotly({
+            plot_analog_novelty(clim.target = test_fut, clim.analog = test_hist, clim.icv = test_icv, pcs = NULL)
+          })
+          
+          showModal(modalDialog(
+            title = paste0("Analog Novelty Plot"),
+            plotlyOutput("feas_plot", height = "70vh"),
+            size = "l",
+            easyClose = TRUE,
+            footer = NULL
+          ))
+        } else {
+          cell_click <- cellFromXY(t_rast, cbind(lng,lat))
+          curr_cell(cell_click)
+          fp <- substr(input$period_feas,1,4)
+          qry <- paste0("select * from bgc_preds where cellid = ",cell_click)
+          #cat(qry)
+          dat <- dbGetQuery(dbCon, qry)
+          
+          output$bgc_plot_2 <- renderPlotly({
+            
+            fig <- plot_ly(data = dat, x = ~fp_code,
+                           y = ~bgc_prop, split = ~bgc_pred, type = 'bar',
+                           color = ~bgc_pred, colors = colour_ref, hovertemplate = "%{y}",
+                           text = ~bgc_pred, textposition = 'inside', textfont = list(color = "black", size = 12),
+                           texttemplate = "%{text}") %>%
+              layout(yaxis = list(title = "", tickformat = ".1%"),
+                     xaxis = list(showspikes = FALSE, title = list(text = "Period"),
+                                  ticktext = c("1961-1990","2001-2020 (obs)", "2001-2020", "2021-2040","2041-2060","2061-2080"),
+                                  tickvals = c(1961,1981,2001,2021,2041,2061)),
+                     barmode = 'stack')
+            fig
+          })
+          
+          showModal(modalDialog(
+            title = paste0("BGC Projections"),
+            plotlyOutput("bgc_plot_2"),
+            easyClose = TRUE,
+            footer = NULL,
+            size = "m"
+          ))
+        }
+        
       }
-      
     }
     
+    
+  })
+  
+  ############FIND a BEC#######################
+  observeEvent(input$findabec,{
+    if(input$findabec){
+      session$sendCustomMessage("add_findabec","waddles")
+    } else {
+      session$sendCustomMessage("remove_findabec","waddles")
+    }
+  })
+  
+  observeEvent(input$selectBGC,{
+    if(input$selectBGC == "(N)"){
+      #browser()
+      updatePickerInput(session,"selectSubzone",choices = subzones,selected = "")
+      session$sendCustomMessage("clearBEC","xxx")
+    }else{
+      temp <- subzones[grep(input$selectBGC,subzones)]
+      updatePickerInput(session,"selectSubzone",choices = temp,selected = temp)
+    }
+  })
+  
+  observeEvent(input$selectSubzone,{
+    session$sendCustomMessage("highlightBEC",input$selectSubzone)
+  })
+  
+  observeEvent(input$becselect_click,{
+    output$selectedBEC <- renderText({
+      if(length(input$becselect_click) > 1){
+        c("Selected BGC: ",
+          input$selectBGC)
+      }else{
+        c("Selected BGC: ",
+          input$becselect_click)
+      }
+      
+    })
   })
   
   ##-----------------------------------------
@@ -559,10 +508,6 @@ server <- function(input, output, session) {
     session$sendCustomMessage("resize_map","waddles")
   })
   
-  # observeEvent(input$resize_map, {
-  #   leafletProxy("map") %>% invokeMethod(NULL,"invalidateSize")
-  # })
-  
   # Show or hide the plot based on toggle input
   observeEvent(input$toggle_plot, {
     if (input$toggle_plot == "show") {
@@ -572,85 +517,7 @@ server <- function(input, output, session) {
     }
   })
   
-  # output$ui_select_2 <- renderUI({
-  #   if(input$type_2 == "BGC"){
-  #     tagList(
-  #       h1("BGC Options"),
-  #       selectInput("gcm_select_2","Select GCM", choices = gcms, selected = gcms[1]),
-  #       selectInput("period_select_2","Select Period", choices = periods, selected = periods[1]),
-  #       checkboxInput("novelty_2","Display Novelty?")
-  #     )
-  #   }else{
-  #     tagList(
-  #       h1("Feasibility Options"),
-  #       selectInput("map_stat_2","Select Map Type", choices = list("Projected Feasibility" = "NewFeas",
-  #                                                                "Feasibility Change" = "MeanChange"), multiple = FALSE),
-  #       selectInput("period_feas_2","Select Period", choices = c("Obs", periods[-5])),
-  #       selectInput("edatope_feas_2","Select Edatope", choices = c("B2","C4","E6"), selected = "C4", multiple = FALSE),
-  #       selectInput("species_feas_2", "Select Species", choices = c("Fd","Pl","Sx","Cw","Hw","Bl","At", "Ac", "Ep", "Yc", "Pw", "Ss", "Bg", "Lw", "Sb"), multiple = FALSE)
-  #       
-  #     )
-  #   }
-  # })
-  # 
-  # observeEvent(input$clear_map_2,{
-  #   if(input$clear_map_2 %% 2 != 0){
-  #     session$sendCustomMessage("clear_tiles_2","Luna")
-  #     session$sendCustomMessage("remove_novelty_2","Luna")
-  #   }else{
-  #     session$sendCustomMessage("unclear_tiles_2","Luna")
-  #     if(input$novelty_2){
-  #       session$sendCustomMessage("unclear_novelty_2","Luna")
-  #     }
-  #   }
-  #   
-  # })
   
-  # if(input$novelty){
-  #   session$sendCustomMessage("remove_novelty","puppy")
-  #   tile_url <- gsub("GCM", input$gcm_select, novelty_tileserver)
-  #   tile_url <- gsub("PERIOD", input$period_select, tile_url)
-  #   session$sendCustomMessage("add_novelty",tile_url)
-  # }
-  
-  # observeEvent(input$novelty_2,{
-  #   if(input$novelty_2){
-  #     tile_url <- gsub("GCM", input$gcm_select_2, novelty_tileserver)
-  #     tile_url <- gsub("PERIOD", input$period_select_2, tile_url)
-  #     # if(input$gcm_select_2 == "SZ_Ensemble"){
-  #     #   tile_url <- gsub("png","webp",tile_url)
-  #     # }
-  #     session$sendCustomMessage("add_novelty_2",tile_url)
-  #   }else{
-  #     session$sendCustomMessage("remove_novelty_2","puppy")
-  #   }
-  # })
-  
-  # output$map_2 <- renderLeaflet({
-  #   leaflet(options = leafletOptions(maxZoom = 12)) %>%
-  #     setView(lng = -122.77222, lat = 51.2665, zoom = 6) %>%
-  #     leaflet::addTiles(
-  #       urlTemplate = paste0("https://api.mapbox.com/styles/v1/", mbsty, "/tiles/{z}/{x}/{y}?access_token=", mbtk),
-  #       attribution = '&#169; <a href="https://www.mapbox.com/feedback/">Mapbox</a>',
-  #       group = "Hillshade",
-  #       options = leaflet::pathOptions(pane = "mapPane")) %>%
-  #     leaflet::addTiles(
-  #       urlTemplate = paste0("https://api.mapbox.com/styles/v1/", mblbsty, "/tiles/{z}/{x}/{y}?access_token=", mbtk),
-  #       attribution = '&#169; <a href="https://www.mapbox.com/feedback/">Mapbox</a>',
-  #       group = "Cities",
-  #       options = leaflet::pathOptions(pane = "overlayPane")) %>%
-  #     leaflet::addProviderTiles(leaflet::providers$Esri.WorldImagery, group = "Satellite",
-  #                               options = leaflet::pathOptions(pane = "mapPane")) %>%
-  #     addPlugin() %>%
-  #     addBGCTiles() %>%
-  #     addRasterTiles_v2() %>%
-  #     addDistricts() %>%
-  #     addLayersControl(
-  #       baseGroups = c("Hillshade","Satellite"),
-  #       overlayGroups = c("BGCs"),
-  #       position = "topright")
-  # })
-  # 
   observe({
     if(input$region_type != "None"){
       if(input$region_type == "District"){
@@ -665,40 +532,11 @@ server <- function(input, output, session) {
     }
   })
   
-  # observe({
-  #   if(!is.null(input$gcm_select_2) & input$type_2 == "BGC"){
-  #     if(input$gcm_select_2 == "Zone_Ensemble"){
-  #       ens_type <- "Zone"
-  #     }else{
-  #       ens_type <- "SZ"
-  #     }
-  #     tile_url <- gsub("GCM", input$gcm_select_2, base_tileserver)
-  #     tile_url <- gsub("PERIOD", input$period_select_2, tile_url)
-  #     dat <- list(url = tile_url, type = ens_type) #type = ens_type
-  #     message("Sending to JS")
-  #     session$sendCustomMessage("update_tiles_2",dat)
-  #     if(input$novelty_2){
-  #       session$sendCustomMessage("remove_novelty_2","puppy")
-  #       tile_url <- gsub("GCM", input$gcm_select_2, novelty_tileserver)
-  #       tile_url <- gsub("PERIOD", input$period_select_2, tile_url)
-  #       session$sendCustomMessage("add_novelty_2",tile_url)
-  #     }
-  #   }
-  #   if(!is.null(input$map_stat_2) & input$type_2 != "BGC"){
-  #     tile_url <- gsub("STAT", input$map_stat_2, species_tileserver)
-  #     tile_url <- gsub("PERIOD", input$period_feas_2, tile_url)
-  #     tile_url <- gsub("EDATOPE", input$edatope_feas_2, tile_url)
-  #     tile_url <- gsub("SPECIES", input$species_feas_2, tile_url)
-  #     #cat(tile_url)
-  #     if(input$period_feas_2 == "Obs") fmt <- "webp" else fmt <- "png"
-  #     tile_url <- gsub("FORMAT", fmt, tile_url)
-  #     session$sendCustomMessage("remove_novelty_2", "puppy")
-  #     dat <- list(url = tile_url, type = "CCISS")
-  #     session$sendCustomMessage("update_tiles_2",dat)
-  #   }
-  #   
-  # })
-  # 
+  observeEvent(input$dist_flag,{
+    print(input$dist_flag)
+  })
+  
+  
   observeEvent(input$dist_click,{
     temp <- dist_bnds[ORG_UNIT == input$dist_click,]
     print(temp)
@@ -770,10 +608,10 @@ server <- function(input, output, session) {
   })
   
   output$download_legend <- renderUI(
-    if(input$type_2 == "BGC"){
+    if(input$type == "BGC"){
       a(href="downloadable_docs/BGC_Legend.csv", "Download Legend", download=NA, target="_blank")
     }else{
-      if(input$map_stat_2 == "Feasibility"){
+      if(input$map_stat == "Feasibility"){
         a(href="downloadable_docs/Feasibility_Legend.csv", "Download Legend", download=NA, target="_blank")
       }else{
         a(href="downloadable_docs/MeanChange_Legend.csv", "Download Legend", download=NA, target="_blank")
@@ -783,23 +621,23 @@ server <- function(input, output, session) {
   
   output$download_cciss <- downloadHandler(
     filename = function(){
-      if(input$type_2 == "BGC"){
-        paste0("bgc_raw_",input$dist_click, "_", input$gcm_select_2,"_", input$period_select_2,".tif")
+      if(input$type == "BGC"){
+        paste0("bgc_raw_",input$dist_click, "_", input$gcm_select,"_", input$period_select,".tif")
       }else{
-        paste0(input$map_stat_2,input$dist_click, "_", input$period_feas_2,"_", input$species_feas_2,"_",input$edatopic_feas_2,".tif")
+        paste0(input$map_stat,input$dist_click, "_", input$period_feas,"_", input$species_feas,"_",input$edatopic_feas,".tif")
       }
     },
     content = function(file){
-      if(input$type_2 == "BGC"){
-        lname <- paste0("bgc_raw_",input$gcm_select_2,"_",input$period_select_2,".tif")
+      if(input$type == "BGC"){
+        lname <- paste0("bgc_raw_",input$gcm_select,"_",input$period_select,".tif")
         tname <- "bgc_raw"
       }else{
-        browser()
-        sname <- switch(input$map_stat_2,
+        #browser()
+        sname <- switch(input$map_stat,
                         NewFeas = "Feasibility_",
                         MeanChange = "MeanChange_")
-        lname <- paste0(sname,input$period_feas_2,"_",input$edatope_feas_2,"_",input$species_feas_2,".tif")
-        tname <- switch(input$map_stat_2,
+        lname <- paste0(sname,input$period_feas,"_",input$edatope_feas,"_",input$species_feas,".tif")
+        tname <- switch(input$map_stat,
                         NewFeas = "feasibility_raw2",
                         MeanChange = "meanchange_raw")
       }
@@ -808,7 +646,11 @@ server <- function(input, output, session) {
       boundary <- t(bnd)[,1]
       rst <- dbGetFeasible(dbCon, table_name = tname, layer_name = lname, boundary = boundary)
       if(input$clip_download){
-        bnds <- vect("district_bnds.gpkg")
+        if(input$region_type == "FLP Area"){
+          bnds <- vect("flp_bnds.gpkg")
+        }else{
+          bnds <- vect("district_bnds.gpkg")
+        }
         bnd <- bnds[bnds$ORG_UNIT == input$dist_click,]
         rst <- mask(rst, bnd)
       }
@@ -816,63 +658,6 @@ server <- function(input, output, session) {
       writeRaster(rst, file, datatype = "INT2S")
     }
   )
-  
-  ##---------------Find-a-BEC-------------------------
-
-      output$findBGCMap <- renderLeaflet({
-        leaflet() %>%
-          setView(lng = -122.77222, lat = 51.2665, zoom = 6) %>%
-          addProviderTiles(leaflet::providers$CartoDB.PositronNoLabels, group = "Positron",
-                           options = leaflet::pathOptions(pane = "mapPane")) %>%
-          leaflet::addProviderTiles(leaflet::providers$Esri.WorldImagery, group = "Satellite",
-                                    options = leaflet::pathOptions(pane = "mapPane")) %>%
-          leaflet::addProviderTiles(leaflet::providers$OpenStreetMap, group = "OpenStreetMap",
-                                    options = leaflet::pathOptions(pane = "mapPane")) %>%
-          leaflet::addTiles(
-            urlTemplate = paste0("https://api.mapbox.com/styles/v1/", mbsty, "/tiles/{z}/{x}/{y}?access_token=", mbtk),
-            attribution = '&#169; <a href="https://www.mapbox.com/feedback/">Mapbox</a>',
-            group = "Hillshade",
-            options = leaflet::pathOptions(pane = "mapPane")) %>%
-          leaflet::addTiles(
-            urlTemplate = paste0("https://api.mapbox.com/styles/v1/", mblbsty, "/tiles/{z}/{x}/{y}?access_token=", mbtk),
-            attribution = '&#169; <a href="https://www.mapbox.com/feedback/">Mapbox</a>',
-            group = "Cities",
-            options = leaflet::pathOptions(pane = "overlayPane")) %>%
-          addSelectBEC() %>%
-          leaflet::addLayersControl(
-            baseGroups = c("Hillshade","Positron","Satellite", "OpenStreetMap"),
-            overlayGroups = c("BEC","Cities"),
-            position = "topright")
-      })
-  
-  
-  observeEvent(input$selectBGC,{
-    if(input$selectBGC == "(N)"){
-      #browser()
-      updateSelectInput(session,"selectSubzone",choices = subzones,selected = "")
-      session$sendCustomMessage("clearBEC","xxx")
-    }else{
-      temp <- subzones[grep(input$selectBGC,subzones)]
-      updateSelectInput(session,"selectSubzone",choices = temp,selected = temp)
-    }
-  })
-  
-  observeEvent(input$selectSubzone,{
-    session$sendCustomMessage("highlightBEC",input$selectSubzone)
-  })
-  
-  observeEvent(input$becselect_click,{
-    output$selectedBEC <- renderText({
-      if(length(input$becselect_click) > 1){
-        c("Selected BGC: ",
-          input$selectBGC)
-      }else{
-        c("Selected BGC: ",
-          input$becselect_click)
-      }
-      
-    })
-  })
 
 }
 

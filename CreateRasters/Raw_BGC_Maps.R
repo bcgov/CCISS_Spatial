@@ -2,6 +2,25 @@ library(climr)
 library(data.table)
 library(terra)
 library(ranger)
+library(pool)
+
+con <- dbPool(
+  drv = Postgres(),
+  dbname = "climr",
+  host = "146.190.244.244",
+  port = 5432,
+  user = "climr_client",
+  password = "PowerOfBEC2023"
+)
+
+conn <- DBI::dbConnect(
+  drv = RPostgres::Postgres(),
+  dbname = "cciss",
+  host = Sys.getenv("BCGOV_HOST"),
+  port = 5432, 
+  user = Sys.getenv("BCGOV_USR"),
+  password = Sys.getenv("BCGOV_PWD")
+)
 
 # dat <- vect("~/FFEC/BGC_v13_Fixed.gpkg")
 # dat <- project(dat, "epsg:4326")
@@ -45,8 +64,41 @@ addVars <- function(dat) {
 # 
 #setwd("~/FFEC/spatcciss/")
 library(sf)
-final_dem <- rast("BC_DEM_200m.tif")
-bgcs <- st_read("../Common_Files/BGC_v13_Fixed.gpkg")
+library(rmapshaper)
+library(geojsonsf)
+library(terra)
+library(dplyr)
+
+bgcs <- vect("../Common_Files/BEC13Draft_BEC13v1wLabelUpdates.shp")
+bgc_simple <- simplifyGeom(bgcs, tolerance = 10)
+bgc_simple <- project(bgc_simple, "epsg:4326")
+
+writeVector(bgc_simple, "../Common_Files/BEC13Draft_Simplified.gpkg")
+
+bgcs <- st_read("../Common_Files/BEC13Draft_Simplified.gpkg")
+bgcs <- st_transform(bgcs, 4326)
+bgcs <- bgcs["MAP_LABEL"]
+
+bgcs2 <- bgcs |>
+  group_by(MAP_LABEL) |>
+  summarize(geom = st_union(geom), .groups = "drop")
+st_write(bgcs, "../Common_Files/BEC13Draft_4326.gpkg")
+bgcs <- vect("../Common_Files/BEC13Draft_4326.gpkg")
+
+bgcs <- st_read("../Common_Files/BEC13Draft_Simplified.gpkg")
+bgcs <- bgcs[c("OBJECTID", "BGC")]
+#bgcs <- bgcs[,"BGC"]
+names(bgcs) <- c("id","bgc","geom")
+st_write(bgcs, conn, "bgcv13_mar6")
+
+bgcs_agg <- aggregate(bgcs, by = "BGC", dissolve = T, count = F)
+writeVector(bgcs_agg, filetype = "GeoJSON", filename = "../Common_Files/BGCv13_March6.geojson")
+bgcs_sf <- st_as_sf(bgcs_agg)
+
+
+bgcjson <- sf_geojson(bgcs)
+bgcs_simple <- ms_simplify(bgcjson, keep = 0.1)
+
 bgcs <- st_transform(bgcs, 4326)
 bgcs$bgc_id <- seq_along(bgcs$BGC)
 bgc_ids <- data.table(bgc = bgcs$BGC, bgc_id = bgcs$bgc_id)
@@ -111,21 +163,21 @@ for (gcm_i in 1:length(gcms_use)){
 }
 
 # ### BGC subzone and zone ensemble vote maps
-# fnames <- list.files("bgc_preds_raw", full.names = T)
-# dat <- fread("bgc_preds_raw/BGC_Pred_ACCESS-ESM1-5.csv")
-# flist <- lapply(fnames, FUN = function(x){fread(x)})
+fnames <- list.files("bgc_preds_raw", full.names = T)
+dat <- fread("bgc_preds_raw/BGC_Pred_ACCESS-ESM1-5.csv")
+flist <- lapply(fnames, FUN = function(x){fread(x)})
 
-# bgc_all <- rbindlist(flist)
-# bgc_all[,zone_pred := gsub("[[:lower:]]|[[:digit:]]|_.*","",bgc_pred)]
+bgc_all <- rbindlist(flist)
+bgc_all[,zone_pred := gsub("[[:lower:]]|[[:digit:]]|_.*","",bgc_pred)]
 
-# sz_votes <- bgc_all[,.(sz_vote = .N), by = .(cellnum, period, bgc_pred)]
-# sz_ensemble <- sz_votes[sz_votes[,.I[which.max((sz_vote))], by = .(cellnum, period)]$V1]
-# fwrite(sz_ensemble, "BGC_Preds_SZ_Ensemble.csv")
+sz_votes <- bgc_all[,.(sz_vote = .N), by = .(cellnum, period, bgc_pred)]
+sz_ensemble <- sz_votes[sz_votes[,.I[which.max((sz_vote))], by = .(cellnum, period)]$V1]
+fwrite(sz_ensemble, "BGC_Preds_SZ_Ensemble.csv")
 
-# zone_votes <- bgc_all[,.(sz_vote = .N), by = .(cellnum, period, zone_pred)]
-# zone_ensemble <- zone_votes[zone_votes[,.I[which.max((sz_vote))], by = .(cellnum, period)]$V1]
-# setnames(zone_ensemble, old = "zone_pred", new = "bgc_pred")
-# fwrite(zone_ensemble, "BGC_Preds_Zone_Ensemble.csv")
+zone_votes <- bgc_all[,.(sz_vote = .N), by = .(cellnum, period, zone_pred)]
+zone_ensemble <- zone_votes[zone_votes[,.I[which.max((sz_vote))], by = .(cellnum, period)]$V1]
+setnames(zone_ensemble, old = "zone_pred", new = "bgc_pred")
+fwrite(zone_ensemble, "BGC_Preds_Zone_Ensemble.csv")
 
 
 gcms_use <- c("SZ_Ensemble", "ACCESS-ESM1-5","EC-Earth3","GISS-E2-1-G","MIROC6","MPI-ESM1-2-HR","MRI-ESM2-0") #"SZ_Ensemble", "Zone_Ensemble", 

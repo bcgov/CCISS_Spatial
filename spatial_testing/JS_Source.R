@@ -28,10 +28,20 @@ zone_colours <- fread("WNAv13_ZoneCols.csv")
 addBGCTiles <- function(map) {
   map <- htmlwidgets::onRender(map, paste0('
     function(el, x, data) {
-      ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$classification, "':'", 
-                                                subzones_colours_ref$colour,"'", collapse = ","), "}"), '
+      ', paste0("var subzoneColorsBGC = {", paste0("'", subzones_colours_ref$classification, "':'", 
+                                                subzones_colours_ref$colour,"'", collapse = ","), "};"),
+                                           paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$colour, "':'", 
+                                                                                  subzones_colours_ref$classification,"'", collapse = ","), "};"),
+                                           paste0("var zoneColors = {", paste0("'", zone_colours$colour, "':'", 
+                                                                               zone_colours$classification,"'", collapse = ","), "};"),
+                                                '
       
       L.bec_layer_opacity = 1
+      baseCols = Object.keys(subzoneColors);
+      map = this;
+      colorpicker = null;
+      type = "SZ";
+      distFlag = false;
       
       var vectorTileOptions=function(layerName, layerId, activ,
                              lfPane, colorMap, prop, id) {
@@ -56,31 +66,50 @@ addBGCTiles <- function(map) {
         
       };
       
-      var subzLayer = L.vectorGrid.protobuf(
+      subzLayer = L.vectorGrid.protobuf(
         "', bgc_tileserver, '",
         vectorTileOptions("bec_map", "', bgc_tilelayer, '", true,
-                          "tilePane", subzoneColors, "BGC", "BGC")
+                          "tilePane", subzoneColorsBGC, "BGC", "BGC")
       )
       this.layerManager.addLayer(subzLayer, "tile", "bec_map", "BGCs");
+     
      subzLayer.on("click", function(e){
       Shiny.setInputValue("bgc_click",e.layer.properties.BGC);
      });
      
+     subzLayer.on("mousemove",function(e){
+        var a = colorpicker.getColor(e.latlng);
+        //console.log(a);
+        var content = "Current: " + e.layer.properties.BGC;
+        if (a !== null & a[3] > 0) {
+          var bgcCol = findNearestColor(prepRgb(a), baseCols);
+          //console.log(bgcCol);
+          var bgc = subzoneColors[bgcCol[0]];
+          //console.log(bgc);
+          content = "Historic: " + e.layer.properties.BGC + "<br>Predicted: " + bgc;
+          //console.log(content);
+        } 
+          L.popup()
+          .setLatLng(e.latlng)
+          .setContent(content)
+          .openOn(map);
+     })
+     
      var selectHighlight = "SBSdk";
-      subzLayer.on("click", function(e){
-        console.log(e.layer);
-        subzLayer.resetFeatureStyle(selectHighlight);
-        Shiny.setInputValue("bgc_click",e.layer.properties.BGC);
-        var properties = e.layer.properties
-  			  highlight = properties.BGC
-  			  var style = {
-            weight: 1,
-            color: "#fc036f",
-            fillColor: subzoneColors[properties.BGC],
-            fillOpacity: 1,
-            fill: true
-          }
-          subzLayer.setFeatureStyle(properties.BGC, style);
+     subzLayer.on("click", function(e){
+      console.log(e.layer.properties.BGC);
+      subzLayer.resetFeatureStyle(selectHighlight);
+      Shiny.setInputValue("bgc_click",e.layer.properties.BGC);
+      var properties = e.layer.properties
+			  highlight = properties.BGC
+			  var style = {
+          weight: 1,
+          color: "#fc036f",
+          fillColor: subzoneColorsBGC[properties.BGC],
+          fillOpacity: 1,
+          fill: true
+        }
+        subzLayer.setFeatureStyle(properties.BGC, style);
       });
       
       subzLayer.bindTooltip(function(e) {
@@ -98,28 +127,10 @@ addBGCTiles <- function(map) {
       subzLayer.on("mouseout", function(e) {
         clearHighlight();
       })
-     
-    }'
-  ))
-  map
-}
-
-addRasterTiles <- function(map) {
-  map <- htmlwidgets::onRender(map, paste0('
-    function(el, x, data) {
-      ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$colour, "':'", 
-                                                subzones_colours_ref$classification,"'", collapse = ","), "};"), 
-                                           paste0("var zoneColors = {", paste0("'", zone_colours$colour, "':'", 
-                                                                               zone_colours$classification,"'", collapse = ","), "};"),'
       
-    baseCols = Object.keys(subzoneColors);
-    console.log("working1");
-    map = this;
-    colorpicker = null;
-    type = "SZ";
-    distFlag = false;
-    
-    function hexToRgb(hex) {
+      //now for rasters
+      
+      function hexToRgb(hex) {
       hex = hex.replace(\'#\', \'\');
       const r = parseInt(hex.substring(0, 2), 16);
       const g = parseInt(hex.substring(2, 4), 16);
@@ -157,8 +168,9 @@ addRasterTiles <- function(map) {
       
       return [nearestColor, smallestDistance];
     }
-    
-    Shiny.addCustomMessageHandler("clear_tiles", function(dat){
+
+      
+      Shiny.addCustomMessageHandler("clear_tiles", function(dat){
       if(colorpicker !== null){
         map.removeLayer(colorpicker);
       }
@@ -260,12 +272,20 @@ addRasterTiles <- function(map) {
         var bgc = subzoneColors[bgcCol[0]];
         Shiny.setInputValue("bgc_pred_click",bgc);
       }
+      
+      });
+    
+    map.on("mouseout", function () {
+        map.closePopup();
     });
+    
+    var popup = L.popup({ closeButton: false, autoClose: false });
 
     map.on("mousemove", function(event) {
-      if(type !== "CCISS" & !distFlag){
+      if(!map.hasLayer(subzLayer)){
+        if(type !== "CCISS" & !distFlag){
         var a = colorpicker.getColor(event.latlng);
-        //console.log(a);
+        console.log(a);
         if (a !== null & a[3] > 0) {
           var bgcCol = findNearestColor(prepRgb(a), baseCols);
           if(type == "SZ"){
@@ -283,180 +303,14 @@ addRasterTiles <- function(map) {
           
         }
       }
+      }
+      
     });
-    }
-      '
+     
+    }'
   ))
   map
 }
-
-# addRasterTiles_v2 <- function(map) {
-#   map <- htmlwidgets::onRender(map, paste0('
-#     function(el, x, data) {
-#       ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$colour, "':'", 
-#                                                 subzones_colours_ref$classification,"'", collapse = ","), "};"), 
-#                                            paste0("var zoneColors = {", paste0("'", zone_colours$colour, "':'", 
-#                                                                                zone_colours$classification,"'", collapse = ","), "};"),'
-#       
-#     baseCols = Object.keys(subzoneColors);
-#     //console.log("working1");
-#     map_2 = this;
-#     colorpicker_2 = null;
-#     type_2 = "SZ";
-#     
-#     function hexToRgb(hex) {
-#       hex = hex.replace(\'#\', \'\');
-#       const r = parseInt(hex.substring(0, 2), 16);
-#       const g = parseInt(hex.substring(2, 4), 16);
-#       const b = parseInt(hex.substring(4, 6), 16);
-#       return { r, g, b };
-#     }
-#     
-#     function prepRgb(rgb) {
-#       const r = rgb[0];
-#       const g = rgb[1];
-#       const b = rgb[2];
-#       return { r, g, b };
-#     }
-#     
-#     
-#     function findNearestColor(inputRgb, colorList) {
-#       let nearestColor = null;
-#       let smallestDistance = Infinity;
-#       
-#       for (const color of colorList) {
-#         const colorRgb = hexToRgb(color);
-#         
-#         // Calculate Euclidean distance
-#         const distance = Math.sqrt(
-#           Math.pow(colorRgb.r - inputRgb.r, 2) +
-#           Math.pow(colorRgb.g - inputRgb.g, 2) +
-#           Math.pow(colorRgb.b - inputRgb.b, 2)
-#         );
-#         
-#         if (distance < smallestDistance) {
-#           smallestDistance = distance;
-#           nearestColor = color;
-#         }
-#       }
-#       
-#       return nearestColor;
-#     }
-#     
-#     Shiny.addCustomMessageHandler("clear_tiles_2", function(dat){
-#       if(colorpicker_2 !== null){
-#         map_2.removeLayer(colorpicker_2);
-#       }
-#     });
-#     
-#     Shiny.addCustomMessageHandler("unclear_tiles_2", function(dat){
-#       if(colorpicker_2 !== null){
-#         colorpicker_2.addTo(map_2);
-#       }
-#     });
-# 
-#     Shiny.addCustomMessageHandler("add_novelty_2", function(tile_url){
-#       t2 = tile_url + "?nocache";
-#       console.log(t2);
-#       var novelty = L.tileLayer.colorPicker(t2, {
-#         maxNativeZoom: 12,
-#         maxZoom: 14,
-#         minNativeZoom: 5,
-#         minZoom: 5,
-#       }).addTo(map_2);
-#       if(distLayer !== null){
-#         distLayer.bringToFront();
-#       }
-#     });
-# 
-#     Shiny.addCustomMessageHandler("remove_novelty_2", function(tile_url){
-#       if(novelty !== null){
-#        map_2.removeLayer(novelty);
-#       }
-#     });
-# 
-#     Shiny.addCustomMessageHandler("unclear_novelty_2", function(tile_url){
-#       if(novelty !== null){
-#         novelty.addTo(map_2);
-#         if(distLayer !== null){
-#           distLayer.bringToFront();
-#         }
-#       }
-#     });
-# 
-#     Shiny.addCustomMessageHandler("update_tiles_2", function(dat){
-#       //console.log("working");
-#       tile_url = dat["url"];
-#       type_2 = dat["type"];
-#       t2 = tile_url + "?nocache";
-#       console.log(t2);
-#       if(type_2 == "SZ"){
-#         baseCols = Object.keys(subzoneColors);
-#       }else{
-#         baseCols = Object.keys(zoneColors);
-#       }
-#       
-#       if(colorpicker_2 !== null){
-#         map_2.removeLayer(colorpicker_2);
-#       }
-#       //map.removeLayer(colorpicker_2);
-#       colorpicker_2 = L.tileLayer.colorPicker(t2, {
-#         maxNativeZoom: 12,
-#         maxZoom: 14,
-#         minNativeZoom: 5,
-#         minZoom: 5,
-#       }).addTo(map_2);
-#       if(distLayer !== null){
-#         distLayer.bringToFront();
-#       }
-#     });
-# 
-#     this.on("overlayadd", function(e){
-#       //console.log("adding BGC");
-#       if(colorpicker_2 !== null){
-#         colorpicker_2.bringToFront();
-#       }
-#     });
-#     
-#     this.on("click", function(event) {
-#       if(type_2 !== "CCISS"){
-#         var a = colorpicker_2.getColor(event.latlng);
-#         var bgcCol = findNearestColor(prepRgb(a), baseCols);
-#         if(type_2 == "SZ"){
-#             var bgc = subzoneColors[bgcCol];
-#           }else{
-#             var bgc = zoneColors[bgcCol];
-#           }
-#         Shiny.setInputValue("bgc_pred_click_2",bgc);
-#       }
-#     });
-# 
-#     map_2.on("mousemove", function(event) {
-#       if(type_2 !== "CCISS"){
-#         var a = colorpicker_2.getColor(event.latlng);
-#         console.log(a);
-#         if (a !== null & a[3] > 0 & !district_flag) {
-#           var bgcCol = findNearestColor(prepRgb(a), baseCols);
-#           if(type_2 == "SZ"){
-#             var bgc = subzoneColors[bgcCol];
-#           }else{
-#             var bgc = zoneColors[bgcCol];
-#           }
-#           
-#           
-#           L.popup()
-#           .setLatLng(event.latlng)
-#           .setContent(bgc)
-#           .openOn(this);
-#         }
-#       }
-#     });
-#     }
-#       '
-#   ))
-#   map
-# }
-
 
 ##district tilelayers
 addDistricts <- function(map) {
@@ -465,6 +319,7 @@ addDistricts <- function(map) {
             //Now districts regions
             
       district_flag = true;
+      Shiny.setInputValue("dist_flag",false);
       var distHL = "DQU";
       var styleHL = {
             weight: 3,
@@ -518,20 +373,18 @@ addDistricts <- function(map) {
         }, {sticky: true, textsize: "12px", opacity: 1});
         distLayer.bringToFront();
         distFlag = true;
+        Shiny.setInputValue("dist_flag",distFlag);
         
         distLayer.on("click", function(e){
-          //distLayer.unbindTooltip();
-          console.log(e);
-          //district_flag = false;
           distLayer.resetFeatureStyle(distHL);
           distHL = e.layer.properties[cid];
-          //map.invalidateSize()
-          //console.log(e.layer);
           Shiny.setInputValue("dist_click",distHL);
           distLayer.setFeatureStyle(distHL, styleHL);
           flag = false;
           distFlag = false;
-         
+          setTimeout(() => {
+            Shiny.setInputValue("dist_flag",false);
+          }, 600);
           });
       });
       
@@ -573,14 +426,11 @@ addDistricts <- function(map) {
 
 ###find a BEC map
 addSelectBEC <- function(map) {
-  map <- registerPlugin(map, plugins$vgplugin)
   map <- htmlwidgets::onRender(map, paste0('
     function(el, x, data) {
       ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$classification, "':'", subzones_colours_ref$colour,"'", collapse = ","), "}"), '
       
-      L.bec_layer_opacity2 = 0.75
-      
-      var vectorTileOptions=function(layerName, layerId, activ,
+      var vectorTileOptionsBEC=function(layerName, layerId, activ,
                              lfPane, colorMap, prop, id) {
         return {
           vectorTileLayerName: layerName,
@@ -591,7 +441,7 @@ addSelectBEC <- function(map) {
                 weight: 0,
                 fillColor: colorMap[properties[prop]],
                 fill: true,
-                fillOpacity: L.bec_layer_opacity2
+                fillOpacity: 1
               }
             }
           },
@@ -603,12 +453,20 @@ addSelectBEC <- function(map) {
         
       };
       
-      var subzLayer = L.vectorGrid.protobuf(
+      findBEC = L.vectorGrid.protobuf(
         "', bgc_tileserver, '",
-        vectorTileOptions("bec_select", "', bgc_tilelayer, '", true,
+        vectorTileOptionsBEC("bec_select", "', bgc_tilelayer, '", true,
                           "tilePane", subzoneColors, "BGC", "BGC")
       )
-      this.layerManager.addLayer(subzLayer, "tile", "bec_select", "BGCs");
+
+      Shiny.addCustomMessageHandler("add_findabec",function(x){
+        //console.log("In add findabec");
+        map.layerManager.addLayer(findBEC, "tile", "BGC", "BGC");
+      })
+      
+      Shiny.addCustomMessageHandler("remove_findabec",function(x){
+        map.removeLayer(findBEC);
+      })
       
       //highlight on click
       var styleHL = {
@@ -619,26 +477,27 @@ addSelectBEC <- function(map) {
             fill: true
           };
       var selectHighlight = ["SBSdk","SBSmc2"];
-      subzLayer.on("click", function(e){
+      findBEC.on("click", function(e){
         //console.log("click");
         selectHighlight.forEach((ID,i) => {
-          subzLayer.resetFeatureStyle(ID);
+          findBEC.resetFeatureStyle(ID);
         });
         Shiny.setInputValue("becselect_click",e.layer.properties.BGC);
+        
         var properties = e.layer.properties
   			  highlight = properties.BGC
-          subzLayer.setFeatureStyle(properties.BGC, styleHL);
+          findBEC.setFeatureStyle(properties.BGC, styleHL);
       });
 
       var highlight;
 		  var clearHighlight = function() {
 		  	if (highlight) {
-		  		subzLayer.resetFeatureStyle(highlight);
+		  		findBEC.resetFeatureStyle(highlight);
 		  	}
 		  	highlight = null;
 		  }
 		  
-      subzLayer.on("mouseout", function(e) {
+      findBEC.on("mouseout", function(e) {
         clearHighlight();
       })
 
@@ -649,11 +508,11 @@ addSelectBEC <- function(map) {
         }
         if(selectHighlight){
           selectHighlight.forEach((ID,i) => {
-            subzLayer.resetFeatureStyle(ID);
+            findBEC.resetFeatureStyle(ID);
           });
           selectHighlight = BECSelect;
           BECSelect.forEach((ID,i) => {
-            subzLayer.setFeatureStyle(ID, styleHL);
+            findBEC.setFeatureStyle(ID, styleHL);
           });
           Shiny.setInputValue("becselect_click",BECSelect);
         }
@@ -661,14 +520,14 @@ addSelectBEC <- function(map) {
       
       Shiny.addCustomMessageHandler("clearBEC",function(x){
           selectHighlight.forEach((ID,i) => {
-            subzLayer.resetFeatureStyle(ID);
+            findBEC.resetFeatureStyle(ID);
           });
       });
       
-      subzLayer.bindTooltip(function(e) {
+      findBEC.bindTooltip(function(e) {
         return e.properties.BGC
       }, {sticky: true, textsize: "10px", opacity: 1});
-      subzLayer.bringToFront();
+      findBEC.bringToFront();
     }'
   ))
   map
