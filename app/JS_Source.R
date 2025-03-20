@@ -85,14 +85,26 @@ addBGCTiles <- function(map) {
           var bgcCol = findNearestColor(prepRgb(a), baseCols);
           //console.log(bgcCol);
           var bgc = subzoneColors[bgcCol[0]];
-          //console.log(bgc);
-          content = "Historic: " + e.layer.properties.BGC + "<br>Predicted: " + bgc;
-          //console.log(content);
-        } 
-          L.popup()
-          .setLatLng(e.latlng)
-          .setContent(content)
-          .openOn(map);
+          if (bgcCol[1] < 5) {
+          infoBox.update(`
+                  <b>Layer Info</b><br>
+                  <b>Mapped BGC:</b> ${e.layer.properties.BGC}<br>
+                  <b>Predicted BGC:</b> ${bgc}
+              `)
+          } else {
+            infoBox.update(`
+                  <b>Layer Info</b><br>
+                  <b>Mapped BGC:</b> ${e.layer.properties.BGC}
+              `)
+          }
+        } else {
+          infoBox.update(`
+                  <b>Layer Info</b><br>
+                  <b>Mapped BGC:</b> ${e.layer.properties.BGC}
+              `)
+        }
+        
+        
      })
      
      var selectHighlight = "SBSdk";
@@ -111,10 +123,6 @@ addBGCTiles <- function(map) {
         }
         subzLayer.setFeatureStyle(properties.BGC, style);
       });
-      
-      subzLayer.bindTooltip(function(e) {
-        return e.properties.BGC
-      }, {sticky: true, textsize: "10px", opacity: 1});
 
       var highlight
 		  var clearHighlight = function() {
@@ -168,13 +176,42 @@ addBGCTiles <- function(map) {
       
       return [nearestColor, smallestDistance];
     }
+    
+    // setup for infobox
+    var infoBox = L.control({ position: "topright" });
 
+    infoBox.onAdd = function (map) {
+        this._div = L.DomUtil.create("div", "info-box");
+        this._div.innerHTML = "<b>Hover over a feature</b>";
+        return this._div;
+    };
+    
+    infoBox.update = function (content) {
+        this._div.innerHTML = content;
+    };
+    
+    infoBox.addTo(map);
       
       Shiny.addCustomMessageHandler("clear_tiles", function(dat){
       if(colorpicker !== null){
         map.removeLayer(colorpicker);
       }
     });
+    
+    var style = document.createElement("style");
+    style.innerHTML = `
+        .info-box {
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0px 0px 8px rgba(0,0,0,0.3);
+            font-size: 14px;
+            min-width: 150px;
+            max-width: 300px;
+        }
+    `;
+    document.head.appendChild(style);
+
     
     Shiny.addCustomMessageHandler("unclear_tiles", function(dat){
       if(colorpicker !== null){
@@ -276,7 +313,7 @@ addBGCTiles <- function(map) {
       });
     
     map.on("mouseout", function () {
-        map.closePopup();
+        infoBox.update("<b>Nothing Here!</b>")
     });
     
     var popup = L.popup({ closeButton: false, autoClose: false });
@@ -295,10 +332,10 @@ addBGCTiles <- function(map) {
           }
           
           if(bgcCol[1] < 5){
-            L.popup()
-            .setLatLng(event.latlng)
-            .setContent(bgc)
-            .openOn(this);
+            infoBox.update(`
+                <b>Layer Info</b><br>
+                <b>Predicted BGC:</b> ${bgc}
+            `)
           }
           
         }

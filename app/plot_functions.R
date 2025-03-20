@@ -1,4 +1,12 @@
 ##plot functions
+
+# L.popup()
+# .setLatLng(event.latlng)
+# .setContent(bgc)
+# .openOn(this);
+# subzLayer.bindTooltip(function(e) {
+#   return e.properties.BGC
+# }, {sticky: true, textsize: "10px", opacity: 1});
 # library(data.table)
 # library(stinepack)
 # library(RPostgres)

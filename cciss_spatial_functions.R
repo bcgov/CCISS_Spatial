@@ -121,8 +121,8 @@ calculate_ensembles <- function(gcm_names, folder_name = "bgc_preds_raw"){
   fwrite(zone_ensemble, paste0(folder_name, "/Zone_Ensemble.csv"))
 }
 
-cols <- fread("./WNAv13_SubzoneCols.csv")
-zone_cols <- fread("./WNAv13_ZoneCols.csv")
+# cols <- fread("./WNAv13_SubzoneCols.csv")
+# zone_cols <- fread("./WNAv13_ZoneCols.csv")
 
 ##load processed predictions and create RGB rasters
 print_bgc_maps <- function(raster_template, subzone_cols, zone_cols, 
