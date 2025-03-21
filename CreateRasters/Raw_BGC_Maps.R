@@ -108,6 +108,7 @@ bc_bgc <- rasterize(bgcs, final_dem, field = "bgc_id")
 writeRaster(bc_bgc,"bcg_rast.tif")
 fwrite(bgc_ids, "bgc_ids.csv")
 
+
 bc_bgc <- rast("BC_BGC_rast.tif.tif")
 
 #final_dem <- aggregate(final_dem, fact = 2)

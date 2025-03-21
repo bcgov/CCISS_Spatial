@@ -1,12 +1,6 @@
 ##plot functions
 
-# L.popup()
-# .setLatLng(event.latlng)
-# .setContent(bgc)
-# .openOn(this);
-# subzLayer.bindTooltip(function(e) {
-#   return e.properties.BGC
-# }, {sticky: true, textsize: "10px", opacity: 1});
+
 # library(data.table)
 # library(stinepack)
 # library(RPostgres)
@@ -22,7 +16,7 @@
 #   user = Sys.getenv("BCGOV_USR"),
 #   password = Sys.getenv("BCGOV_PWD")
 # )
-# 
+# # 
 # # bnds <- fread("./spatial_testing/district_bounds.csv")
 # # bnd <- bnds[ORG_UNIT == "DQU",.(ymax, ymin, xmax, xmin)]
 # # boundary <- t(bnd)[,1]
@@ -165,14 +159,16 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
   #browser()
   bgc_area <- dbGetQuery(dbCon, paste0("select * from ",tabnm," where studyarea = '",
                                        studyarea,"' and not home and gcm = '",gcm_nm,"' and run = '",run_nm,"'"))
-  bgc_obs <- dbGetQuery(dbCon, paste0("select * from ",tabnm," where studyarea = '",studyarea,"'and not home and period = '1961_1990'"))
-  bgc_area <- rbind(bgc_area, bgc_obs)
+  bgc_obs <- dbGetQuery(dbCon, paste0("select * from ",tabnm," where studyarea = '",studyarea,"'and not home and gcm = 'obs'")) |> as.data.table()
+  bgc_area <- rbind(bgc_area, bgc_obs[period == "1961_1990",])
+  #bgc_obs <- bgc_obs[period == "2001_2020",]
   setDT(bgc_area)
   
   metadt <- unique(dbGetQuery(dbCon, paste0("select * from su_meta where studyarea = '",studyarea,"'")))
   
   cellarea <- (metadt$res*111)*(metadt$res*111*cos(metadt$mn_lat * pi / 180))
   bgc_area[,freq := freq * cellarea]
+  bgc_obs[,freq := freq * cellarea]
   
   if(!is.null(focal_bgc)){
     bgc_area_f <- dbGetQuery(dbCon, paste0("select * from ",tabnm," where studyarea = '",
@@ -189,6 +185,7 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
   setorder(bgc_temp, -totalarea)
   bgc_keep <- bgc_temp[prop > 0.15, bgc_pred]
   dat_ens <- bgc_area[bgc_pred %in% bgc_keep,]
+  dat_obs <- bgc_obs[bgc_pred %in% bgc_keep,]
   
   if(xvariable != "Time"){
     clim_data <- dbGetQuery(dbCon, paste0("select * from clim_change where var = '",xvariable,
@@ -198,12 +195,14 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
     clim_data <- rbind(clim_data, clim_obs)
     setDT(clim_data)
     dat_ens[clim_data, xvar := i.value, on = "period"]
+    dat_obs[clim_data, xvar := i.value, on = "period"]
     if(!is.null(focal_bgc)){
       bgc_area_f[clim_data, xvar := i.value, on = "period"]
     }
     xlabel <- paste0("Change in ", xvariable)
   }else{
     dat_ens[, xvar := as.numeric(substr(period,1,4)) + 10]
+    dat_obs[, xvar := as.numeric(substr(period,1,4)) + 10]
     if(!is.null(focal_bgc)){
       bgc_area_f[, xvar := as.numeric(substr(period,1,4)) + 10]
     }
@@ -219,6 +218,8 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
                         by = .(bgc_pred)]
   dat_spline[, area := area/1000]
   dat_ends <- dat_spline[dat_spline[, .I[which.max(area)], by=bgc_pred]$V1]
+  
+  dat_obs[,area := freq/1000]
   
   if(!is.null(focal_bgc)){
     temp <- data.table(gcm = unique(bgc_area_f$gcm),period = NA, freq = bgc_area_f[gcm == "obs",freq], xvar = bgc_area_f[gcm == "obs",xvar])
@@ -237,9 +238,11 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
     
     ggobj <- ggplot() +
       geom_line_interactive(data = dat_spline[bgc_pred != focal_bgc,], aes(x = xval, y = area, group = bgc_pred, data_id = bgc_pred, tooltip = bgc_pred), color = "grey") +
+      geom_point(data = dat_obs[xvar == 2011,], aes(x = xvar, y = area, group = bgc_pred), color = "grey") +
+      geom_line(data = dat_obs, aes(x = xvar, y = area, group = bgc_pred), linetype = "dashed", color = "grey") + 
       geom_line(data = dat_spline[bgc_pred == focal_bgc,], aes(x = xval, y = area), color = "black", linewidth = 1.5) +
       geom_text_repel(data = dat_ends, aes(x = xval, y = area, label = bgc_pred)) +
-      geom_line(data = dat_ens_f, aes(x = xval, y = area, col = gcm)) +
+      geom_line_interactive(data = dat_ens_f, aes(x = xval, y = area, col = gcm, data_id = gcm, tooltip = gcm)) +
       geom_text_repel(data = dat_ends_f, aes(x = xval, y = area, label = gcm, col = gcm)) +
       theme_bw() +
       theme(legend.position = "none") +
@@ -248,6 +251,8 @@ plot_bgc <- function(dbCon, studyarea, xvariable, gcm_nm, run_nm, unit = c("Zone
   } else {
     ggobj <- ggplot(dat_spline, aes(x = xval, y = area, col = bgc_pred, data_id = bgc_pred, tooltip = bgc_pred)) +
       geom_line_interactive() +
+      geom_point(data = dat_obs[xvar == 2011,], aes(x = xvar, y = area, col = bgc_pred)) +
+      geom_line(data = dat_obs, aes(x = xvar, y = area, col = bgc_pred), linetype = "dashed") + 
       geom_text_repel(data = dat_ends, aes(x = xval, y = area, label = bgc_pred)) +
       scale_fill_manual(values = col_scheme) +
       scale_colour_manual(values = col_scheme) +

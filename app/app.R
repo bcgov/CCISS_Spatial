@@ -120,6 +120,8 @@ ui <- fluidPage(
                                                         choices = c("(N)",zones), 
                                                         multiple = F,selected = "(N)"),
                                             pickerInput("selectSubzone","Select Subzone(s)", choices = "",options = pickerOptions(actionsBox = T), multiple = T),
+                                            checkboxInput("gray_out", "Gray non-selected BGCs?", value = FALSE),
+                                            actionButton("clearFAB","Clear Map"),
                                             span(textOutput("selectedBEC", inline = T),style= "font-size:24px")
                                             ),
                            tags$head(tags$style(".modal-body{ min-height:70vh}")),
@@ -139,7 +141,7 @@ ui <- fluidPage(
                                 float: left;
                               }
                               #plot-container {
-                                width: 40%;
+                                width: 35%;
                                 float: right;
                               }
                             "))
@@ -158,6 +160,7 @@ ui <- fluidPage(
                                    condition = "input.type == 'BGC'",
                                    checkboxInput("zone_sz","Summarise by Zone?",value = TRUE),
                                  ),
+                                 actionButton("reset_plot","Reset Plot"),
                                  actionButton("reset_district","Clear Selected District"),
                                  actionButton("action_download","Download Data"),
                                  girafeOutput("summary_plot")
@@ -345,7 +348,7 @@ server <- function(input, output, session) {
     lat <- input$map_click$lat
     lng <- input$map_click$lng
     
-    if(!input$dist_flag){
+    if(!input$dist_flag & !input$findabec){
       if(input$type == "Suitability"){
         cell_click <- cellFromXY(t_rast, cbind(lng,lat))
         curr_cell(cell_click)
@@ -439,9 +442,19 @@ server <- function(input, output, session) {
   ############FIND a BEC#######################
   observeEvent(input$findabec,{
     if(input$findabec){
+      session$sendCustomMessage("clear_tiles","waddles")
       session$sendCustomMessage("add_findabec","waddles")
     } else {
       session$sendCustomMessage("remove_findabec","waddles")
+      session$sendCustomMessage("unclear_tiles","waddles")
+    }
+  })
+  
+  observeEvent(input$gray_out,{
+    if(input$gray_out){
+      session$sendCustomMessage("gray_out","waddles")
+    } else {
+      session$sendCustomMessage("ungray","waddles")
     }
   })
   
@@ -449,11 +462,17 @@ server <- function(input, output, session) {
     if(input$selectBGC == "(N)"){
       #browser()
       updatePickerInput(session,"selectSubzone",choices = subzones,selected = "")
-      session$sendCustomMessage("clearBEC","xxx")
+      session$sendCustomMessage("clearBEC",input$gray_out)
     }else{
+      session$sendCustomMessage("clearBEC",input$gray_out)
       temp <- subzones[grep(input$selectBGC,subzones)]
       updatePickerInput(session,"selectSubzone",choices = temp,selected = temp)
     }
+  })
+  
+  observeEvent(input$clearFAB,{
+    updatePickerInput(session,"selectBGC",selected = "(N)")
+    session$sendCustomMessage("clearBEC",input$gray_out)
   })
   
   observeEvent(input$selectSubzone,{
@@ -589,6 +608,10 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$type,{
+    plot_vals(NULL)
+  })
+  
+  observeEvent(input$reset_plot,{
     plot_vals(NULL)
   })
   

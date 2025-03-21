@@ -94,7 +94,8 @@ addBGCTiles <- function(map) {
           } else {
             infoBox.update(`
                   <b>Layer Info</b><br>
-                  <b>Mapped BGC:</b> ${e.layer.properties.BGC}
+                  <b>Mapped BGC:</b> ${e.layer.properties.BGC}<br>
+                  <b>Predicted BGC:</b> Zoom In
               `)
           }
         } else {
@@ -224,13 +225,17 @@ addBGCTiles <- function(map) {
 
     Shiny.addCustomMessageHandler("add_novelty", function(tile_url){
       t2 = tile_url + "?nocache";
-      console.log(t2);
+      //console.log(t2);
+      if(novelty !== null){
+        map.removeLayer(novelty);
+      }
       novelty = L.tileLayer.colorPicker(t2, {
         maxNativeZoom: 12,
         maxZoom: 14,
         minNativeZoom: 5,
         minZoom: 5,
       }).addTo(map);
+      novelty.bringToFront();
       if(distLayer !== null){
         distLayer.bringToFront();
       }
@@ -300,6 +305,9 @@ addBGCTiles <- function(map) {
       if(colorpicker !== null){
         colorpicker.bringToFront();
       }
+      if(novelty !== null){
+        novelty.bringToFront();
+      }
     });
     
     this.on("click", function(event) {
@@ -331,13 +339,22 @@ addBGCTiles <- function(map) {
             var bgc = zoneColors[bgcCol[0]];
           }
           
-          if(bgcCol[1] < 5){
+          if(bgcCol[1] < 3.5){
             infoBox.update(`
                 <b>Layer Info</b><br>
                 <b>Predicted BGC:</b> ${bgc}
             `)
+          } else {
+            infoBox.update(`
+                <b>Layer Info</b><br>
+                <b>Predicted BGC:</b> Zoom In
+            `)
           }
           
+        } else {
+          infoBox.update(`
+                <b>Nothing Here!</b>
+            `)
         }
       }
       }
@@ -467,6 +484,8 @@ addSelectBEC <- function(map) {
     function(el, x, data) {
       ', paste0("var subzoneColors = {", paste0("'", subzones_colours_ref$classification, "':'", subzones_colours_ref$colour,"'", collapse = ","), "}"), '
       
+      isGray = false;
+      var bgc_ids = Object.keys(subzoneColors);
       var vectorTileOptionsBEC=function(layerName, layerId, activ,
                              lfPane, colorMap, prop, id) {
         return {
@@ -499,6 +518,7 @@ addSelectBEC <- function(map) {
       Shiny.addCustomMessageHandler("add_findabec",function(x){
         //console.log("In add findabec");
         map.layerManager.addLayer(findBEC, "tile", "BGC", "BGC");
+        console.log(findBEC);
       })
       
       Shiny.addCustomMessageHandler("remove_findabec",function(x){
@@ -507,58 +527,88 @@ addSelectBEC <- function(map) {
       
       //highlight on click
       var styleHL = {
-            weight: 1.5,
-            color: "#fc036f",
+            weight: 0,
+            color: "#FFFB00",
             fillColor: "#FFFB00",
             fillOpacity: 1,
             fill: true
           };
-      var selectHighlight = ["SBSdk","SBSmc2"];
+          
+      var style_gray = {
+            weight: 0,
+            color: "#b5b5b5",
+            fillColor: "#b5b5b5",
+            fillOpacity: 1,
+            fill: true
+          };
+          
+      var selectHighlight = [];
       findBEC.on("click", function(e){
         //console.log("click");
-        selectHighlight.forEach((ID,i) => {
-          findBEC.resetFeatureStyle(ID);
-        });
+        if(isGray) {
+          selectHighlight.forEach((ID,i) => {
+            findBEC.setFeatureStyle(ID, style_gray);
+          });
+        } else {
+           selectHighlight.forEach((ID,i) => {
+            findBEC.resetFeatureStyle(ID);
+          });
+        }
         Shiny.setInputValue("becselect_click",e.layer.properties.BGC);
-        
         var properties = e.layer.properties
-  			  highlight = properties.BGC
-          findBEC.setFeatureStyle(properties.BGC, styleHL);
+			  selectHighlight = [properties.BGC];
+        findBEC.setFeatureStyle(properties.BGC, styleHL);
       });
-
-      var highlight;
-		  var clearHighlight = function() {
-		  	if (highlight) {
-		  		findBEC.resetFeatureStyle(highlight);
-		  	}
-		  	highlight = null;
-		  }
-		  
-      findBEC.on("mouseout", function(e) {
-        clearHighlight();
-      })
+      
+      Shiny.addCustomMessageHandler("gray_out",function(x){
+        isGray = true;
+        var toGrayOut = bgc_ids.filter(id => !selectHighlight.includes(id));
+        toGrayOut.forEach((ID,i) => {
+            findBEC.setFeatureStyle(ID, style_gray);
+          });
+      });
+      
+      Shiny.addCustomMessageHandler("ungray",function(x){
+        isGray = false;
+        var toreset = bgc_ids.filter(id => !selectHighlight.includes(id));
+        toreset.forEach((ID,i) => {
+            findBEC.resetFeatureStyle(ID);
+          });
+      });
 
       Shiny.addCustomMessageHandler("highlightBEC",function(BECSelect){
         //console.log(BECSelect);
         if(!Array.isArray(BECSelect)){
           BECSelect = [BECSelect];
         }
-        if(selectHighlight){
+        if(isGray) {
           selectHighlight.forEach((ID,i) => {
+            findBEC.setFeatureStyle(ID, style_gray);
+          });
+        } else {
+           selectHighlight.forEach((ID,i) => {
             findBEC.resetFeatureStyle(ID);
           });
-          selectHighlight = BECSelect;
-          BECSelect.forEach((ID,i) => {
-            findBEC.setFeatureStyle(ID, styleHL);
-          });
-          Shiny.setInputValue("becselect_click",BECSelect);
         }
+       
+        selectHighlight = BECSelect;
+        BECSelect.forEach((ID,i) => {
+          findBEC.setFeatureStyle(ID, styleHL);
+        });
+        Shiny.setInputValue("becselect_click",BECSelect);
+
       });
       
-      Shiny.addCustomMessageHandler("clearBEC",function(x){
-          selectHighlight.forEach((ID,i) => {
+      Shiny.addCustomMessageHandler("clearBEC",function(gray){
+        if(gray){
+          bgc_ids.forEach((ID,i) => {
+            findBEC.setFeatureStyle(ID, style_gray);
+          });
+        } else {
+          bgc_ids.forEach((ID,i) => {
             findBEC.resetFeatureStyle(ID);
           });
+        }
       });
       
       findBEC.bindTooltip(function(e) {

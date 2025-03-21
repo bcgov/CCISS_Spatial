@@ -15,9 +15,9 @@ addVars <- function(dat) {
 }
 
 raw_preds_future <- function(raster_template, 
-                          BGCmodel, vars_needed, 
-                          gcms_use, runs_use, spp_use, periods_use, 
-                          chunk_size = 1000000, folder_name = "bgc_preds_raw"){
+                             BGCmodel, vars_needed, 
+                             gcms_use, runs_use, ssp_use, periods_use, 
+                             chunk_size = 1000000, folder_name = "bgc_preds_raw"){
   points_dat <- as.data.frame(raster_template, cells=T, xy=T)
   colnames(points_dat) <- c("id", "lon", "lat", "elev")
   points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
@@ -52,8 +52,8 @@ raw_preds_future <- function(raster_template,
 }
 
 raw_preds_obs <- function(raster_template, 
-                             BGCmodel, vars_needed, 
-                             chunk_size = 1000000, folder_name = "bgc_preds_raw"){
+                          BGCmodel, vars_needed, 
+                          chunk_size = 1000000, folder_name = "bgc_preds_raw"){
   points_dat <- as.data.frame(raster_template, cells=T, xy=T)
   colnames(points_dat) <- c("id", "lon", "lat", "elev")
   points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
@@ -79,8 +79,8 @@ raw_preds_obs <- function(raster_template,
 }
 
 raw_preds_hist <- function(raster_template, 
-                          BGCmodel, vars_needed, 
-                          chunk_size = 1000000, folder_name = "bgc_preds_raw"){
+                           BGCmodel, vars_needed, 
+                           chunk_size = 1000000, folder_name = "bgc_preds_raw"){
   points_dat <- as.data.frame(raster_template, cells=T, xy=T)
   colnames(points_dat) <- c("id", "lon", "lat", "elev")
   points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
@@ -121,15 +121,17 @@ calculate_ensembles <- function(gcm_names, folder_name = "bgc_preds_raw"){
   fwrite(zone_ensemble, paste0(folder_name, "/Zone_Ensemble.csv"))
 }
 
-# cols <- fread("./WNAv13_SubzoneCols.csv")
-# zone_cols <- fread("./WNAv13_ZoneCols.csv")
+
 
 ##load processed predictions and create RGB rasters
 print_bgc_maps <- function(raster_template, subzone_cols, zone_cols, 
                            input_name = "bgc_preds_raw", 
                            output_name = "bgc_rasters") {
   fnames <- list.files(input_name, full.names = TRUE)
-  for(name in fnames){
+  f_short <- list.files(input_name, full.names = FALSE)
+  gcm_nms <- gsub("BGC_Pred_|.csv","",f_short)
+  for(i in 1:length(fnames)){
+    name <- fnames[i]
     all_pred <- fread(name)
     if(grepl("Zone_Ensemble", name)){
       col_use <- zone_cols
@@ -151,7 +153,7 @@ print_bgc_maps <- function(raster_template, subzone_cols, zone_cols,
       
       coltab(final_dem) <- bgc_id[,.(bgc_id,colour)]
       rgbbgc <- colorize(final_dem, to = "rgb", alpha = T)
-      writeRaster(rgbbgc, paste0(output_name,"/bgc_",gcm_curr,"_",curr_per,".tif"), overwrite=TRUE)  
+      writeRaster(rgbbgc, paste0(output_name,"/bgc_",gcm_nms[i],"_",curr_per,".tif"), overwrite=TRUE)  
     }
   }
 }
@@ -161,6 +163,8 @@ summary_preds_gcm <- function(raster_template,
                               BGCmodel, 
                               gcms_use, 
                               periods_use, 
+                              ssp_use = c("ssp126", "ssp245", "ssp370"),
+                              ssp_w = c(0.8,1,0.8),
                               vars_needed, 
                               out_folder = "bgc_data",
                               start_tile = 1) {
@@ -168,6 +172,7 @@ summary_preds_gcm <- function(raster_template,
   colnames(points_dat) <- c("id", "lon", "lat", "elev")
   points_dat <- points_dat[,c(2,3,4,1)] #restructure for climr input
   splits <- c(seq(1, nrow(points_dat), by = 100000), nrow(points_dat) + 1)
+  ssp_weights <- data.table(ssp = ssp_use, weight = ssp_w)
   message("There are ", length(splits), " tiles")
   
   for (i in start_tile:(length(splits) - 1)){
@@ -175,7 +180,7 @@ summary_preds_gcm <- function(raster_template,
     clim_dat <- downscale(points_dat[splits[i]:(splits[i+1]-1),], 
                           which_refmap = "refmap_climr",
                           gcms = gcms_use,
-                          gcm_periods = period_curr,
+                          gcm_periods = periods_use,
                           ssps = ssp_use,
                           max_run = 0L,
                           vars = vars_needed,
@@ -226,6 +231,17 @@ summary_preds_obs <- function(raster_template,
   message("Done!")
 }
 
+make_bgc_raster <- function(raster_template, bgcs){
+  bgcs <- st_transform(bgcs, crs(raster_template))
+  bgcs$bgc_id <- as.numeric(as.factor(bgcs$BGC))
+  bgc_ids <- unique(data.table(bgc = bgcs$BGC, bgc_id = bgcs$bgc_id))
+  
+  bgcs <- vect(bgcs)
+  bc_bgc <- rasterize(bgcs, raster_template, field = "bgc_id")
+  writeRaster(bc_bgc,"BC_BGC_rast.tif", overwrite = TRUE)
+  fwrite(bgc_ids, "BC_BGC_rast_ids.csv")
+}
+
 siteseries_preds <- function(edatopes = c("B2", "C4", "D6"), 
                              obs = F, 
                              bgc_rast, 
@@ -249,7 +265,7 @@ siteseries_preds <- function(edatopes = c("B2", "C4", "D6"),
   }
   
   bgc_points <- as.data.frame(bgc_rast, cells=T, xy=T) |> as.data.table()
-  bgc_points[rast_id, BGC := i.BGC, on = "bgc_id"]
+  bgc_points[rast_id, BGC := i.bgc, on = "bgc_id"]
   
   eda_ss <- special_ss[,.(SS_NoSpace,SpecialCode)]
   edatopic[eda_ss, SpecialCode := i.SpecialCode, on = "SS_NoSpace"]
@@ -288,6 +304,7 @@ cciss_suitability <- function(species,
                               edatopes,
                               feas_table,
                               obs = FALSE,
+                              periods = list_gcm_periods(),
                               in_folder = "ss_preds",
                               out_folder = "cciss_feas",
                               tile_size = 4000) {
@@ -297,7 +314,6 @@ cciss_suitability <- function(species,
     periods <- list_obs_periods()
     obs_nm <- "obs_"
   } else {
-    periods <- list_gcm_periods()
     obs_nm <- ""
   }
   
@@ -324,9 +340,10 @@ cciss_suitability <- function(species,
 }
 
 plot_suitability_maps <- function(raster_template,
-                                  bgc_raster,
                                   species,
                                   edatopes,
+                                  periods,
+                                  bgc_rast,
                                   obs = FALSE,
                                   in_folder = "cciss_feas",
                                   out_folder = "final_rgb",
@@ -346,13 +363,12 @@ plot_suitability_maps <- function(raster_template,
   change_cols <- data.table(value = breakpoints.change, Colour = palette.change)
   
   ##addret colours
-  addret_cols <- data.table(value = breakpoints.binary*100, Colour = palette.binary)
+  #addret_cols <- data.table(value = breakpoints.binary*100, Colour = palette.binary)
   
   if(obs) {
     periods <- list_obs_periods()
     obs_nm <- "obs_"
   } else {
-    periods <- list_gcm_periods()
     obs_nm <- ""
   }
   
@@ -377,12 +393,12 @@ plot_suitability_maps <- function(raster_template,
         
         #historic feasibility
         if(period == "2001_2020" & !obs){
-            values(final_dem) <- NA
-            final_dem[!is.na(bgc_rast)] <- 999
-            final_dem[dat_spp$SiteRef] <- dat_spp$CurrRound
-            coltab(final_dem) <- suit_cols
-            final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
-            writeRaster(final_rgb, paste0(out_folder,"/HistoricFeas_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
+          values(final_dem) <- NA
+          final_dem[!is.na(bgc_rast)] <- 999
+          final_dem[dat_spp$SiteRef] <- dat_spp$CurrRound
+          coltab(final_dem) <- suit_cols
+          final_rgb <- colorize(final_dem, to = "rgb", alpha = TRUE)
+          writeRaster(final_rgb, paste0(out_folder,"/HistoricFeas_",period,"_",edatope,"_",spp,".tif"), overwrite = T)
         }
         
         ##new feasibility
